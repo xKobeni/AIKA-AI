@@ -1,0 +1,80 @@
+# Virtual Environment
+
+.venv/
+venv/
+env/
+
+# Python
+
+**pycache**/
+*.pyc
+*.pyo
+*.pyd
+*.pytest_cache/
+.mypy_cache/
+
+# Environment Variables
+
+.env
+.env.*
+
+# IDEs
+
+.vscode/
+.idea/
+
+# Logs
+
+logs/
+*.log
+
+# Local Databases
+
+*.db
+*.sqlite3
+
+# AIKA Local Storage (legacy)
+
+memory/
+
+# Build Artifacts
+
+build/
+dist/
+*.egg-info/
+
+# OS Files
+
+.DS_Store
+Thumbs.db
+
+# Jupyter
+
+.ipynb_checkpoints/
+
+# Coverage Reports
+
+.coverage
+htmlcov/
+
+# Temporary Files
+
+tmp/
+temp/
+
+# Model Downloads (if stored locally)
+
+models/
+weights/
+
+# Ollama Generated Files (if you create local caches later)
+
+cache/
+embeddings_cache/
+
+# PostgreSQL Dumps / Backups
+
+*.sql
+*.dump
+backup/
+backups/

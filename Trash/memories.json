@@ -1,0 +1,38 @@
+[
+  {
+    "id": 1,
+    "type": "fact",
+    "content": "AIKA uses Python",
+    "created_at": "2026-06-07T22:28:59.716944"
+  },
+  {
+    "id": 3,
+    "type": "goal",
+    "content": "Build AIKA v1",
+    "created_at": "2026-06-07T22:32:59.174893"
+  },
+  {
+    "id": 4,
+    "type": "preference",
+    "content": "User likes anime UI",
+    "created_at": "2026-06-07T22:33:06.888381"
+  },
+  {
+    "id": 4,
+    "type": "project",
+    "content": "AIKA uses FastAPI",
+    "created_at": "2026-06-08T09:05:35.923746"
+  },
+  {
+    "id": 5,
+    "type": "fact",
+    "content": "AIKA uses python ",
+    "created_at": "2026-06-08T10:01:50.755390"
+  },
+  {
+    "id": 6,
+    "type": "project",
+    "content": "AIKA uses llm",
+    "created_at": "2026-06-08T10:03:09.505111"
+  }
+]
