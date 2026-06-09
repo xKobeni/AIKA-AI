@@ -2,20 +2,20 @@ class ChatHandler:
 
     def __init__(
         self,
-        memory_repo,
         conversation_repo,
-        embedding_service,
         llm,
-        memory_extractor
+        memory_extractor,
+        context_manager
     ):
 
-        self.memory_repo = memory_repo
         self.conversation_repo = conversation_repo
-        self.embedding_service = embedding_service
         self.llm = llm
         self.memory_extractor = memory_extractor
+        self.context_manager = context_manager
 
     def chat(self, user_message):
+        
+        print(type(self.conversation_repo))
 
         # -------------------------
         # Save User Message
@@ -26,51 +26,33 @@ class ChatHandler:
         )
 
         # -------------------------
-        # Generate Embedding
+        # Auto Memory Extraction
         # -------------------------
-        query_embedding = self.embedding_service.generate_embedding(
+        result = self.memory_extractor.extract_memory(
             user_message
         )
 
-        # -------------------------
-        # Extract Memory (AUTO MEMORY SYSTEM)
-        # -------------------------
-        result = self.memory_extractor.extract_memory(user_message)
-
         if result:
-            print("[Memory Stored] ->", result)
+            print(
+                "[Memory Stored] ->",
+                result
+            )
 
         # -------------------------
-        # Load Relevant Memories (SEMANTIC SEARCH)
+        # Build Context
         # -------------------------
-        memories = self.memory_repo.semantic_search(
-            query_embedding,
-            limit=5
+        context = (
+            self.context_manager
+            .build_context(user_message)
         )
 
-        # -------------------------
-        # UPDATE MEMORY USAGE (IMPORTANT FOR INTELLIGENCE)
-        # -------------------------
-        for memory in memories:
-            self.memory_repo.update_access(memory.id)
+        memory_context = (
+            context["memory_context"]
+        )
 
-        # -------------------------
-        # Build Memory Context
-        # -------------------------
-        memory_context = "\n".join([
-            f"- {memory.content}"
-            for memory in memories
-        ])
-
-        # -------------------------
-        # Load Recent Conversations
-        # -------------------------
-        conversations = self.conversation_repo.get_recent(10)
-
-        conversation_context = "\n".join([
-            f"{c.role}: {c.content}"
-            for c in conversations
-        ])
+        conversation_context = (
+            context["conversation_context"]
+        )
 
         # -------------------------
         # Build Prompt
@@ -93,7 +75,9 @@ class ChatHandler:
         # -------------------------
         # Generate Response
         # -------------------------
-        response = self.llm.generate(prompt)
+        response = self.llm.generate(
+            prompt
+        )
 
         # -------------------------
         # Save Assistant Response

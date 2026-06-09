@@ -10,6 +10,8 @@ from repositories.conversation_repository import ConversationRepository
 from handlers.memory_extractor import MemoryExtractor
 from handlers.memory_validator import MemoryValidator
 
+from brain.context_manager import ContextManager
+
 from brain.router import Router
 
 from llm.embedding_service import EmbeddingService
@@ -36,6 +38,13 @@ class AikaBrain:
             self.llm,
             self.memory_validator
         )
+        
+        # Context Manager
+        self.context_manager = ContextManager(
+            self.memory_repo,
+            self.conversation_repo,
+            self.embedding_service
+        )
 
         # Decision Engine
         self.decision_engine = DecisionEngine()
@@ -46,12 +55,12 @@ class AikaBrain:
             self.embedding_service
         )
 
+        # Chat Handler
         self.chat_handler = ChatHandler(
-            self.memory_repo,
             self.conversation_repo,
-            self.embedding_service,
             self.llm,
-            self.memory_extractor
+            self.memory_extractor,
+            self.context_manager
         )
 
         # Router
