@@ -88,7 +88,23 @@ class DecisionEngine:
 
             "my plans",
 
-            "my plan"
+            "my plan",
+
+            " tell me about",
+
+            "what is",
+
+            "project",
+
+            "projects",
+
+            "goal",
+
+            "goals",
+
+            "plan",
+
+            "plans"
         ]
 
         if any(

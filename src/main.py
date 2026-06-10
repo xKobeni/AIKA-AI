@@ -12,6 +12,10 @@ while True:
     if user_input.lower() == "exit":
         break
 
-    response = brain.process(user_input)
+    try:
+        response = brain.process(user_input)
+    except Exception as e:
+        print(f"\n[Error] {e}")
+        continue
 
     print(f"\nAIKA > {response}")

@@ -10,6 +10,25 @@ class ContextManager:
         self.conversation_repo = conversation_repo
         self.embedding_service = embedding_service
 
+    def sort_by_priority(self, memories):
+
+        projects = [
+            m for m in memories
+            if m.category == "project"
+        ]
+
+        goals = [
+            m for m in memories
+            if m.category == "goal"
+        ]
+
+        others = [
+            m for m in memories
+            if m.category not in ["project", "goal"]
+        ]
+
+        return projects + goals + others
+
     def build_context(
         self,
         user_message
@@ -32,9 +51,18 @@ class ContextManager:
             self.memory_repo
             .semantic_search(
                 query_embedding,
-                limit=5
+                limit=10
             )
         )
+
+        memories = self.sort_by_priority(memories)
+
+        memories = [
+            m for m in memories
+            if getattr(m, '_score', 0) >= 0.35
+        ]
+
+        memories = memories[:5]
 
         # -------------------------
         # Update Access Tracking

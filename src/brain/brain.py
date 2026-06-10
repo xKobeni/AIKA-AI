@@ -10,6 +10,8 @@ from repositories.conversation_repository import ConversationRepository
 
 from handlers.memory_extractor import MemoryExtractor
 from handlers.memory_validator import MemoryValidator
+from handlers.tool_response_handler import ToolResponseHandler
+from handlers.tool_handler import ToolHandler
 
 from brain.context_manager import ContextManager
 from brain.router import Router
@@ -35,7 +37,11 @@ class AikaBrain:
         self.conversation_repo = ConversationRepository()
         
         # Memory Extraction and Validation
-        self.memory_validator = MemoryValidator(self.llm)
+        self.memory_validator = MemoryValidator(
+            self.llm,
+            memory_repo=self.memory_repo,
+            embedding_service=self.embedding_service
+        )
         self.memory_extractor = MemoryExtractor(
             self.memory_repo,
             self.embedding_service,
@@ -56,8 +62,13 @@ class AikaBrain:
             CalculatorTool()
         )
         
+        self.tool_response_handler = ToolResponseHandler(
+            self.llm
+        )
+        
         self.tool_handler = ToolHandler(
-            self.tool_manager
+            self.tool_manager,
+            self.tool_response_handler
         )
         
         self.tool_manager.register_tool(

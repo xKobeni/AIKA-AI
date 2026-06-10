@@ -20,23 +20,37 @@ class MemoryHandler:
                 ":",
                 1
             )
-            
+
+            memory_type = memory_type.strip()
+            content = content.strip()
+
+            type_importance = {
+                "project": 9, "goal": 8,
+                "skill": 6, "preference": 6,
+                "person": 5, "fact": 5
+            }
+            importance = type_importance.get(memory_type, 5)
+
             embedding = self.embedding_service.generate_embedding(content)
 
             self.memory_repo.create(
-                memory_type.strip(),
-                content.strip(),
-                embedding
+                memory_type,
+                content,
+                embedding,
+                category=memory_type,
+                importance=importance
             )
 
-            return (
-                f"Stored "
-                f"{memory_type.strip()} memory."
-            )
+            return f"Stored {memory_type} memory."
+
+        content = raw.strip()
+        embedding = self.embedding_service.generate_embedding(content)
 
         self.memory_repo.create(
             "fact",
-            raw.strip()
+            content,
+            embedding,
+            importance=5
         )
 
         return "Memory stored."

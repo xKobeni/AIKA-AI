@@ -1,5 +1,11 @@
 import json
 
+STRICT_STORE_CATEGORIES = {
+    "project",
+    "goal",
+    "skill",
+    "preference"
+}
 
 class MemoryExtractor:
 
@@ -26,6 +32,7 @@ class MemoryExtractor:
             Rules:
             - Only store important, meaningful, or persistent information
             - Ignore greetings, small talk, or temporary statements
+            - If the user is asking a question, do NOT store it
             - Assign correct category
 
             Categories:
@@ -75,12 +82,36 @@ class MemoryExtractor:
         if not validated.get("store"):
             return None
 
+        category = validated.get("category", data.get("category", "fact"))
+        importance = validated.get("importance", data.get("importance", 5))
+
+        if importance is None:
+            importance = 5
+
+        # STRICT FILTER RULE
+        if category not in STRICT_STORE_CATEGORIES and importance < 7:
+            print("[MemoryExtractor] Rejected low-value memory:", category)
+            return None
+        
+        if category == "project":
+            importance = max(importance, 9)
+            validated["importance"] = importance
+
+        if category == "goal":
+            importance = max(importance, 8)
+            validated["importance"] = importance
+
         # -----------------------------
         # STEP 4: Use cleaned/validated output
         # -----------------------------
-        content = validated.get("normalized_content", data["content"])
-        category = validated.get("category", data["category"])
-        importance = validated.get("importance", data["importance"])
+        raw_content = data.get("content", "")
+
+        normalized = validated.get("normalized_content")
+
+        if not normalized:
+            normalized = raw_content.strip()
+
+        content = normalized
 
         # -----------------------------
         # STEP 5: Generate embedding
@@ -98,6 +129,14 @@ class MemoryExtractor:
 
             return None
 
+
+        print("\n=== MEMORY STORING ===")
+        print("Content:", content)
+        print("Category:", category)
+        print("Importance:", importance)
+        print("======================\n")
+
+
         # -----------------------------
         # STEP 6: Store memory
         # -----------------------------
@@ -105,7 +144,8 @@ class MemoryExtractor:
             memory_type=category,
             content=content,
             embedding=embedding,
-            category=category
+            category=category,
+            importance=importance
         )
 
         return validated

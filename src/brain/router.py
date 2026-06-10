@@ -46,9 +46,15 @@ class Router:
 
         if action == Action.DELETE_MEMORY:
 
-            memory_id = int(
-                user_message.split()[1]
-            )
+            try:
+                memory_id = int(
+                    user_message.split()[1]
+                )
+            except (IndexError, ValueError):
+                return (
+                    "Please provide a valid memory ID to forget. "
+                    "Example: forget 1"
+                )
 
             return (
                 self.memory_handler
