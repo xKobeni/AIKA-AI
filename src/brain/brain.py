@@ -3,6 +3,7 @@ from llm.ollama_client import OllamaClient
 
 from handlers.memory_handler import MemoryHandler
 from handlers.chat_handler import ChatHandler
+from handlers.tool_handler import ToolHandler
 
 from repositories.memory_repository import MemoryRepository
 from repositories.conversation_repository import ConversationRepository
@@ -11,8 +12,10 @@ from handlers.memory_extractor import MemoryExtractor
 from handlers.memory_validator import MemoryValidator
 
 from brain.context_manager import ContextManager
-
 from brain.router import Router
+
+from tools.tool_manager import ToolManager
+from tools.calculator_tool import CalculatorTool
 
 from llm.embedding_service import EmbeddingService
 
@@ -45,6 +48,17 @@ class AikaBrain:
             self.conversation_repo,
             self.embedding_service
         )
+        
+        # Tool Manager
+        self.tool_manager = ToolManager()
+        self.tool_manager.register_tool(
+            CalculatorTool()
+        )
+        
+        self.tool_handler = ToolHandler(
+            self.tool_manager
+        )
+        
 
         # Decision Engine
         self.decision_engine = DecisionEngine()
@@ -66,7 +80,8 @@ class AikaBrain:
         # Router
         self.router = Router(
             self.memory_handler,
-            self.chat_handler
+            self.chat_handler,
+            tool_handler=self.tool_handler
         )
         
 
