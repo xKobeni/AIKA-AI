@@ -5,10 +5,16 @@ class MemorySearchTool(BaseTool):
 
     def __init__(
         self,
-        memory_repository
+        memory_repository,
+        embedding_service
     ):
+
         self.memory_repository = (
             memory_repository
+        )
+
+        self.embedding_service = (
+            embedding_service
         )
 
     @property
@@ -21,9 +27,19 @@ class MemorySearchTool(BaseTool):
         query
     ):
 
-        results = (
-            self.memory_repository
-            .semantic_search(query)
+        query_embedding = (
+            self.embedding_service
+            .generate_embedding(query)
         )
 
-        return results
+        memories = (
+            self.memory_repository
+            .semantic_search(
+                query_embedding
+            )
+        )
+
+        return [
+            memory.content
+            for memory in memories
+        ]

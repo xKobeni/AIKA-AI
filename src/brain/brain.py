@@ -16,6 +16,7 @@ from brain.router import Router
 
 from tools.tool_manager import ToolManager
 from tools.calculator_tool import CalculatorTool
+from tools.memory_search_tool import MemorySearchTool
 
 from llm.embedding_service import EmbeddingService
 
@@ -59,6 +60,12 @@ class AikaBrain:
             self.tool_manager
         )
         
+        self.tool_manager.register_tool(
+            MemorySearchTool(
+                self.memory_repo,
+                self.embedding_service
+            )
+        )
 
         # Decision Engine
         self.decision_engine = DecisionEngine()
@@ -86,7 +93,6 @@ class AikaBrain:
         
 
     def process(self, user_message):
-
         # # Save user message
         # self.memory.save_conversation(
         #     "user",
@@ -99,7 +105,7 @@ class AikaBrain:
         )
         
         # Debug: Print decision
-        print(f"[Decision Engine] -> {decision.value}")   
+        #print(f"[Decision Engine] -> {decision.value}")   
         
         # call appropriate handler based on decision
         response = self.router.route(

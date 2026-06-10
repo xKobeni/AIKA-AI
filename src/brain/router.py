@@ -1,5 +1,6 @@
 from models.actions import Action
 from models.tool_request import ToolRequest
+import re
 
 class Router:
 
@@ -65,11 +66,27 @@ class Router:
             
         if action == Action.USE_TOOL:
 
-            tool_request = ToolRequest(
-                tool_name="calculator",
-                parameters={
-                    "expression": user_message
-                }
-            )
+            if re.match(
+                r"^[0-9+\-*/(). ]+$",
+                user_message
+            ):
 
-            return self.tool_handler.handle(tool_request)
+                tool_request = ToolRequest(
+                    tool_name="calculator",
+                    parameters={
+                        "expression": user_message
+                    }
+                )
+
+            else:
+
+                tool_request = ToolRequest(
+                    tool_name="memory_search",
+                    parameters={
+                        "query": user_message
+                    }
+                )
+
+            return self.tool_handler.handle(
+                tool_request
+            )

@@ -85,7 +85,18 @@ class MemoryExtractor:
         # -----------------------------
         # STEP 5: Generate embedding
         # -----------------------------
-        embedding = self.embedding_service.generate_embedding(content)
+        embedding = (
+            self.embedding_service
+            .generate_embedding(content)
+        )
+
+        if embedding is None:
+
+            print(
+                "[MemoryExtractor] Failed to generate embedding"
+            )
+
+            return None
 
         # -----------------------------
         # STEP 6: Store memory
