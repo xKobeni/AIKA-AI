@@ -1,5 +1,6 @@
 from database.db import SessionLocal
 from database.models import Conversation
+from sqlalchemy import func
 
 class ConversationRepository:
 
@@ -35,6 +36,29 @@ class ConversationRepository:
 
         # reverse so it's chronological
         return list(reversed(conversations))
+
+    def trim(self, max_count=100):
+
+        db = SessionLocal()
+
+        total = db.query(func.count(Conversation.id)).scalar()
+
+        if total > max_count:
+
+            to_delete = total - max_count
+
+            db.query(Conversation).filter(
+                Conversation.id.in_(
+                    db.query(Conversation.id)
+                    .order_by(Conversation.id)
+                    .limit(to_delete)
+                    .subquery()
+                )
+            ).delete(synchronize_session=False)
+
+            db.commit()
+
+        db.close()
 
     def clear(self):
 

@@ -1,0 +1,8 @@
+AIKA is a personal AI operating system.
+
+It contains:
+Memory System
+Tool System
+Agent System
+
+The goal is to create an autonomous AI companion.

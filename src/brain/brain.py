@@ -3,7 +3,6 @@ from llm.ollama_client import OllamaClient
 
 from handlers.memory_handler import MemoryHandler
 from handlers.chat_handler import ChatHandler
-from handlers.tool_handler import ToolHandler
 
 from repositories.memory_repository import MemoryRepository
 from repositories.conversation_repository import ConversationRepository
@@ -19,8 +18,13 @@ from brain.router import Router
 from tools.tool_manager import ToolManager
 from tools.calculator_tool import CalculatorTool
 from tools.memory_search_tool import MemorySearchTool
+from tools.file_search_tool import FileSearchTool
+from tools.file_read_tool import FileReadTool
 
 from llm.embedding_service import EmbeddingService
+
+from planner.execution_planner import ExecutionPlanner
+from planner.plan_executor import PlanExecutor
 
 
 class AikaBrain:
@@ -61,6 +65,12 @@ class AikaBrain:
         self.tool_manager.register_tool(
             CalculatorTool()
         )
+        self.tool_manager.register_tool(
+            FileSearchTool()
+        )
+        self.tool_manager.register_tool(
+            FileReadTool()
+        )
         
         self.tool_response_handler = ToolResponseHandler(
             self.llm
@@ -78,8 +88,17 @@ class AikaBrain:
             )
         )
 
+        # Execution Planner
+        self.planner = ExecutionPlanner()
+        self.executor = PlanExecutor(
+            self.tool_manager,
+            self.llm
+        )
+
         # Decision Engine
-        self.decision_engine = DecisionEngine()
+        self.decision_engine = DecisionEngine(
+            llm=self.llm
+        )
 
         # Handlers
         self.memory_handler = MemoryHandler(
@@ -99,7 +118,10 @@ class AikaBrain:
         self.router = Router(
             self.memory_handler,
             self.chat_handler,
-            tool_handler=self.tool_handler
+            tool_handler=self.tool_handler,
+            conversation_repo=self.conversation_repo,
+            planner=self.planner,
+            executor=self.executor
         )
         
 

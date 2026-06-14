@@ -1,7 +1,13 @@
 from tools.base_tool import BaseTool
+from tools.tool_category import ToolCategory
+from tools.tool_permission import ToolPermission
 
 
 class MemorySearchTool(BaseTool):
+
+    description = "Searches stored memories using semantic search"
+    category = ToolCategory.MEMORY
+    permission = ToolPermission.LOW
 
     def __init__(
         self,
@@ -39,7 +45,10 @@ class MemorySearchTool(BaseTool):
             )
         )
 
-        return [
-            memory.content
-            for memory in memories
-        ]
+        return {
+            "success": True,
+            "memories": [
+                memory.content
+                for memory in memories
+            ]
+        }

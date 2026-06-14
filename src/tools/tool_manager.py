@@ -12,6 +12,14 @@ class ToolManager:
 
         return self.tools.get(tool_name)
 
+    def get_tools_by_category(self, category):
+
+        return {
+            name: tool
+            for name, tool in self.tools.items()
+            if tool.category == category
+        }
+
     def execute_tool(
         self,
         tool_name,

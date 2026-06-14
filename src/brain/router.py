@@ -8,12 +8,18 @@ class Router:
         self,
         memory_handler,
         chat_handler,
-        tool_handler
+        tool_handler,
+        conversation_repo=None,
+        planner=None,
+        executor=None
     ):
 
         self.memory_handler = memory_handler
         self.chat_handler = chat_handler
         self.tool_handler = tool_handler
+        self.conversation_repo = conversation_repo
+        self.planner = planner
+        self.executor = executor
 
     def route(
         self,
@@ -63,6 +69,31 @@ class Router:
                 )
             )
 
+        if action == Action.PLAN_EXECUTION:
+
+            if not self.planner or not self.executor:
+                return "Planning system is not available."
+
+            plan = self.planner.create_plan(
+                user_message
+            )
+
+            if plan is None:
+                return (
+                    "I'm not sure how to break that down. "
+                    "Could you be more specific?"
+                )
+
+            return self.executor.execute_plan(
+                plan
+            )
+
+        if action == Action.CLEAR_CONVERSATION:
+
+            self.conversation_repo.clear()
+
+            return "Conversation history cleared."
+
         if action == Action.CHAT:
 
             return (
@@ -81,6 +112,28 @@ class Router:
                     tool_name="calculator",
                     parameters={
                         "expression": user_message
+                    }
+                )
+
+            elif user_message.lower().startswith(
+                "find "
+            ):
+
+                tool_request = ToolRequest(
+                    tool_name="file_search",
+                    parameters={
+                        "query": user_message
+                    }
+                )
+
+            elif user_message.lower().startswith(
+                "read "
+            ):
+
+                tool_request = ToolRequest(
+                    tool_name="file_read",
+                    parameters={
+                        "file_path": user_message[5:]
                     }
                 )
 

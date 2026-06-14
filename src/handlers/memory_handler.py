@@ -82,8 +82,16 @@ class MemoryHandler:
         query
     ):
 
-        results = self.memory_repo.search(
-            query
+        query_embedding = (
+            self.embedding_service
+            .generate_embedding(query)
+        )
+
+        if not query_embedding:
+            return "No memories found."
+
+        results = self.memory_repo.semantic_search(
+            query_embedding
         )
 
         if not results:

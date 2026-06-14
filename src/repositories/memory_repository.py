@@ -107,15 +107,22 @@ class MemoryRepository:
     ):
 
         db = SessionLocal()
-        memories = db.query(Memory).all()
+
+        candidate_limit = limit * 3
+
+        candidates = (
+            db.query(Memory)
+            .filter(Memory.embedding.isnot(None))
+            .order_by(Memory.embedding.cosine_distance(query_embedding))
+            .limit(candidate_limit)
+            .all()
+        )
+
         db.close()
 
         results = []
 
-        for memory in memories:
-
-            if memory.embedding is None:
-                continue
+        for memory in candidates:
 
             similarity = self.cosine_similarity(
                 query_embedding,

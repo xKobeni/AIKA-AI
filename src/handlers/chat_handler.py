@@ -54,6 +54,16 @@ class ChatHandler:
             context["conversation_context"]
         )
 
+        if conversation_context.strip():
+            conversation_block = (
+                f"Recent Conversation:\n"
+                f"{conversation_context}"
+            )
+        else:
+            conversation_block = (
+                "(No recent conversation history)"
+            )
+
         # -------------------------
         # Build Prompt
         # -------------------------
@@ -63,8 +73,7 @@ class ChatHandler:
             Known Memories:
             {memory_context}
 
-            Recent Conversation:
-            {conversation_context}
+            {conversation_block}
 
             User:
             {user_message}
@@ -86,5 +95,10 @@ class ChatHandler:
             role="assistant",
             content=response
         )
+
+        # -------------------------
+        # Trim old conversations
+        # -------------------------
+        self.conversation_repo.trim()
 
         return response
