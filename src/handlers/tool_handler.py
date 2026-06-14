@@ -103,8 +103,8 @@ class ToolHandler:
 
                     lines.append(
                         f"{r.get('title', '')}\n"
-                        f"  URL: {r.get('url', '')}\n"
-                        f"  {r.get('snippet', '')}"
+                        f"  URL: {r.get('href', r.get('url', ''))}\n"
+                        f"  {r.get('body', r.get('snippet', ''))}"
                     )
 
                 return "\n\n".join(lines)

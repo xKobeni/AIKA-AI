@@ -5,9 +5,6 @@ from models.actions import Action
 
 class DecisionEngine:
 
-    def __init__(self, llm=None):
-        self.llm = llm
-
     def decide(self, user_input: str):
 
         text = user_input.lower().strip()
@@ -29,6 +26,25 @@ class DecisionEngine:
             return Action.LIST_MEMORIES
 
         if text.startswith("search "):
+
+            remaining = text[7:]
+
+            web_search_followups = [
+                "the internet", "the web",
+                "for ", "online", "google"
+            ]
+
+            if any(
+                remaining.startswith(w)
+                or remaining == w
+                for w in web_search_followups
+            ):
+
+                print(
+                    "[Decision Engine] -> USE_TOOL (web_search)"
+                )
+
+                return Action.USE_TOOL
 
             print("[Decision Engine] -> SEARCH_MEMORY")
 
@@ -85,6 +101,43 @@ class DecisionEngine:
             return Action.USE_TOOL
 
         # ============================
+        # TOOL: WEB SEARCH
+        # ============================
+
+        web_search_phrases = [
+            "weather",
+            "forecast",
+            "search the internet",
+            "search for ",
+            "look up ",
+            "find online",
+            "google ",
+            "latest news",
+            "current ",
+            "who is ",
+            "what is a ",
+            "where is ",
+            "how to ",
+            "when did ",
+            "define ",
+            "meaning of",
+            "news about",
+            "information about",
+            "web search",
+            "search online",
+            "browse "
+        ]
+
+        if any(
+            phrase in text
+            for phrase in web_search_phrases
+        ):
+            print(
+                "[Decision Engine] -> USE_TOOL (web_search)"
+            )
+            return Action.USE_TOOL
+
+        # ============================
         # TOOL: MEMORY SEARCH
         # ============================
 
@@ -123,8 +176,6 @@ class DecisionEngine:
             "my plan",
 
             " tell me about",
-
-            "what is",
 
             "project",
 
@@ -193,44 +244,5 @@ class DecisionEngine:
         # ============================
         # LLM FALLBACK
         # ============================
-
-        return self._llm_fallback(text)
-
-    def _llm_fallback(self, text):
-
-        if not self.llm:
-
-            print("[Decision Engine] -> CHAT (no LLM)")
-
-            return Action.CHAT
-
-        prompt = f"""
-            Classify the user's intent into exactly one action:
-
-            CHAT: general conversation, greetings, casual talk, opinions
-            STORE_MEMORY: user is sharing personal info, facts, preferences, goals about themselves
-            SEARCH_MEMORY: user is asking what you know about them, or asking about stored info
-            LIST_MEMORIES: user wants to see all stored memories
-            DELETE_MEMORY: user wants to delete or forget something
-            USE_TOOL: user wants a calculation or information lookup
-            CLEAR_CONVERSATION: user wants to reset or clear chat history
-            PLAN_EXECUTION: user wants to summarize, analyze, review, inspect, or research something
-
-            User message: "{text}"
-
-            Return ONLY the action name (e.g., CHAT).
-            """
-
-        response = self.llm.generate(prompt).strip().upper()
-
-        for action in Action:
-
-            if action.value.upper() == response:
-
-                print(f"[Decision Engine] -> {action.value} (LLM)")
-
-                return action
-
-        print("[Decision Engine] -> CHAT (fallback)")
 
         return Action.CHAT

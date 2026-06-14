@@ -3,6 +3,7 @@ from datetime import datetime
 from planner.execution_context import ExecutionContext
 from research.content_processor import ContentProcessor
 from research.report_generator import ReportGenerator
+from research.source_ranker import SourceRanker
 
 
 class PlanExecutor:
@@ -17,6 +18,7 @@ class PlanExecutor:
         self.llm = llm
         self.content_processor = ContentProcessor()
         self.report_generator = ReportGenerator(llm)
+        self.source_ranker = SourceRanker()
 
     def execute_plan(
         self,
@@ -142,25 +144,15 @@ class PlanExecutor:
 
         if tool_name == "web_crawl":
 
-            sources = context.get("sources")
+            top_sources = context.get(
+                "_top_sources"
+            )
 
-            if sources and "url" not in params:
+            if top_sources and "urls" not in params:
 
-                uncrawled = context.get(
-                    "_uncrawled_idx",
-                    0
-                )
-
-                if uncrawled < len(sources):
-
-                    params["url"] = sources[
-                        uncrawled
-                    ]["url"]
-
-                    context.set(
-                        "_uncrawled_idx",
-                        uncrawled + 1
-                    )
+                params["urls"] = [
+                    s.url for s in top_sources
+                ]
 
         return params
 
@@ -209,9 +201,37 @@ class PlanExecutor:
 
             if isinstance(result, dict):
 
+                sources = result.get("results", [])
+
+                context.set("sources", sources)
+
+                ranked = self.source_ranker.rank(
+                    sources
+                )
+
+                top = self.source_ranker.select_top(
+                    ranked,
+                    n=3
+                )
+
                 context.set(
-                    "sources",
-                    result.get("results", [])
+                    "_top_sources",
+                    top
+                )
+
+                citations = []
+
+                for s in top:
+
+                    citations.append({
+                        "title": s.title,
+                        "url": s.url,
+                        "source_type": s.source_type
+                    })
+
+                context.set(
+                    "_citations",
+                    citations
                 )
 
             return
@@ -223,12 +243,53 @@ class PlanExecutor:
                 []
             )
 
+            top_sources = context.get(
+                "_top_sources",
+                []
+            )
+
+            url_to_source = {
+                s.url: s
+                for s in top_sources
+            }
+
             if isinstance(result, dict) and result.get("success"):
 
-                raw_pages.append({
-                    "url": result.get("url", ""),
-                    "content": result.get("content", "")
-                })
+                pages = result.get("pages")
+
+                if pages is not None:
+
+                    for page in pages:
+
+                        url = page.get("url", "")
+                        matched = url_to_source.get(url)
+
+                        raw_pages.append({
+                            "url": url,
+                            "title": page.get("title", ""),
+                            "content": page.get("content", ""),
+                            "source_type": (
+                                matched.source_type
+                                if matched
+                                else ""
+                            )
+                        })
+
+                else:
+
+                    url = result.get("url", "")
+                    matched = url_to_source.get(url)
+
+                    raw_pages.append({
+                        "url": url,
+                        "title": result.get("title", ""),
+                        "content": result.get("content", ""),
+                        "source_type": (
+                            matched.source_type
+                            if matched
+                            else ""
+                        )
+                    })
 
             context.set("_raw_pages", raw_pages)
 
@@ -265,12 +326,17 @@ class PlanExecutor:
                 "summary",
                 ""
             )
+            citations = context.get(
+                "_citations",
+                []
+            )
 
             report = (
                 self.report_generator.generate(
                     query,
                     content,
-                    summary
+                    summary,
+                    citations
                 )
             )
 

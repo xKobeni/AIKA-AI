@@ -2,10 +2,16 @@ from repositories.memory_repository import MemoryRepository
 
 class MemoryHandler:
 
-    def __init__(self, memory_repo, embedding_service):
+    def __init__(
+        self,
+        memory_repo,
+        embedding_service,
+        retrieval_service=None
+    ):
 
         self.memory_repo = memory_repo
         self.embedding_service = embedding_service
+        self.retrieval_service = retrieval_service
 
     def store_memory(
         self,
@@ -82,6 +88,23 @@ class MemoryHandler:
         query
     ):
 
+        if self.retrieval_service:
+
+            result = self.retrieval_service.retrieve(
+                query,
+                limit=5
+            )
+
+            if isinstance(result, str):
+                return result
+
+            if not result:
+                return "No memories found."
+
+            return "\n".join(
+                m.content for m in result
+            )
+
         query_embedding = (
             self.embedding_service
             .generate_embedding(query)
@@ -122,6 +145,18 @@ class MemoryHandler:
         self,
         query
     ):
+
+        if self.retrieval_service:
+
+            result = self.retrieval_service.retrieve(
+                query,
+                limit=5
+            )
+
+            if isinstance(result, str):
+                return []
+
+            return result
 
         query_embedding = (
             self.embedding_service

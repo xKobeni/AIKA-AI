@@ -1,3 +1,6 @@
+import threading
+import time
+
 from brain.decision_engine import DecisionEngine
 from llm.ollama_client import OllamaClient
 
@@ -8,7 +11,6 @@ from repositories.memory_repository import MemoryRepository
 from repositories.conversation_repository import ConversationRepository
 
 from handlers.memory_extractor import MemoryExtractor
-from handlers.memory_validator import MemoryValidator
 from handlers.tool_response_handler import ToolResponseHandler
 from handlers.tool_handler import ToolHandler
 
@@ -24,6 +26,10 @@ from tools.web_search_tool import WebSearchTool
 from tools.web_crawl_tool import WebCrawlTool
 
 from llm.embedding_service import EmbeddingService
+
+from memory.memory_retrieval_service import (
+    MemoryRetrievalService
+)
 
 from planner.execution_planner import ExecutionPlanner
 from planner.plan_executor import PlanExecutor
@@ -42,24 +48,26 @@ class AikaBrain:
         self.memory_repo = MemoryRepository()
         self.conversation_repo = ConversationRepository()
         
-        # Memory Extraction and Validation
-        self.memory_validator = MemoryValidator(
-            self.llm,
-            memory_repo=self.memory_repo,
-            embedding_service=self.embedding_service
-        )
+        # Memory Extraction
         self.memory_extractor = MemoryExtractor(
             self.memory_repo,
-            self.embedding_service,
-            self.llm,
-            self.memory_validator
+            self.embedding_service
+        )
+
+        # Memory Intelligence V3
+        self.memory_retrieval_service = (
+            MemoryRetrievalService(
+                self.memory_repo,
+                self.embedding_service
+            )
         )
         
         # Context Manager
         self.context_manager = ContextManager(
             self.memory_repo,
             self.conversation_repo,
-            self.embedding_service
+            self.embedding_service,
+            retrieval_service=self.memory_retrieval_service
         )
         
         # Tool Manager
@@ -91,8 +99,7 @@ class AikaBrain:
         
         self.tool_manager.register_tool(
             MemorySearchTool(
-                self.memory_repo,
-                self.embedding_service
+                self.memory_retrieval_service
             )
         )
 
@@ -104,14 +111,13 @@ class AikaBrain:
         )
 
         # Decision Engine
-        self.decision_engine = DecisionEngine(
-            llm=self.llm
-        )
+        self.decision_engine = DecisionEngine()
 
         # Handlers
         self.memory_handler = MemoryHandler(
             self.memory_repo,
-            self.embedding_service
+            self.embedding_service,
+            retrieval_service=self.memory_retrieval_service
         )
 
         # Chat Handler
@@ -119,7 +125,8 @@ class AikaBrain:
             self.conversation_repo,
             self.llm,
             self.memory_extractor,
-            self.context_manager
+            self.context_manager,
+            tool_manager=self.tool_manager
         )
 
         # Router
@@ -134,24 +141,31 @@ class AikaBrain:
         
 
     def process(self, user_message):
-        # # Save user message
-        # self.memory.save_conversation(
-        #     "user",
-        #     user_message
-        # )
+
+        t0 = time.time()
 
         # Decide action based on user message
         decision = self.decision_engine.decide(
             user_message
         )
-        
-        # Debug: Print decision
-        #print(f"[Decision Engine] -> {decision.value}")   
-        
-        # call appropriate handler based on decision
+
+        # Route to appropriate handler
         response = self.router.route(
             decision,
             user_message
         )
-        
+
+        total = time.time() - t0
+
+        print(f"[DEBUG] {'-'*45}")
+        print(f"[DEBUG] Decision: {decision.value} | Total: {total:.2f}s")
+
+        # Background memory extraction (non-blocking)
+        threading.Thread(
+            target=self.chat_handler.memory_extractor.extract_memory,
+            args=(user_message,),
+            daemon=True
+        ).start()
+        print(f"[DEBUG] Memory extraction -> background")
+
         return response

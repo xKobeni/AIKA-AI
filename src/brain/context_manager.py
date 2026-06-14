@@ -4,30 +4,13 @@ class ContextManager:
         self,
         memory_repo,
         conversation_repo,
-        embedding_service
+        embedding_service,
+        retrieval_service=None
     ):
         self.memory_repo = memory_repo
         self.conversation_repo = conversation_repo
         self.embedding_service = embedding_service
-
-    def sort_by_priority(self, memories):
-
-        projects = [
-            m for m in memories
-            if m.category == "project"
-        ]
-
-        goals = [
-            m for m in memories
-            if m.category == "goal"
-        ]
-
-        others = [
-            m for m in memories
-            if m.category not in ["project", "goal"]
-        ]
-
-        return projects + goals + others
+        self.retrieval_service = retrieval_service
 
     def build_context(
         self,
@@ -35,34 +18,44 @@ class ContextManager:
     ):
 
         # -------------------------
-        # Generate Query Embedding
-        # -------------------------
-
-        query_embedding = (
-            self.embedding_service
-            .generate_embedding(user_message)
-        )
-
-        # -------------------------
         # Retrieve Memories
         # -------------------------
 
-        memories = (
-            self.memory_repo
-            .semantic_search(
-                query_embedding,
-                limit=10
+        memories = []
+
+        if self.retrieval_service:
+
+            result = self.retrieval_service.retrieve(
+                user_message,
+                limit=5
             )
-        )
 
-        memories = self.sort_by_priority(memories)
+            if isinstance(result, str):
+                result = []
 
-        memories = [
-            m for m in memories
-            if getattr(m, '_score', 0) >= 0.35
-        ]
+            memories = result
 
-        memories = memories[:5]
+        else:
+
+            query_embedding = (
+                self.embedding_service
+                .generate_embedding(user_message)
+            )
+
+            memories = (
+                self.memory_repo
+                .semantic_search(
+                    query_embedding,
+                    limit=10
+                )
+            )
+
+            memories = [
+                m for m in memories
+                if getattr(m, '_score', 0) >= 0.35
+            ]
+
+            memories = memories[:5]
 
         # -------------------------
         # Update Access Tracking

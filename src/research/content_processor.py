@@ -33,8 +33,19 @@ class ContentProcessor:
 
             if content.strip():
 
+                source_type = (
+                    page.get("source_type", "")
+                    if isinstance(page, dict)
+                    else ""
+                )
+
+                label = f"Source {i + 1}"
+
+                if source_type:
+                    label += f" ({source_type})"
+
                 sections.append(
-                    f"--- Source {i + 1} ---\n{content}"
+                    f"--- {label} ---\n{content}"
                 )
 
         return "\n\n".join(sections)

@@ -1,11 +1,22 @@
-import json
-
-STRICT_STORE_CATEGORIES = {
-    "project",
-    "goal",
-    "skill",
-    "preference"
-}
+MEMORY_PATTERNS = [
+    ("project", ["i am building", "i'm building", "i am working on",
+                 "i'm working on", "my project", "my startup",
+                 "i am creating", "i'm creating", "i am developing",
+                 "i'm developing", "i am making", "i'm making"]),
+    ("preference", ["i like", "i love", "i prefer", "i enjoy",
+                    "i hate", "i dislike", "my favorite",
+                    "i am into", "i'm into", "i am interested in",
+                    "i'm interested in"]),
+    ("goal", ["i want to", "i need to", "i plan to", "my goal",
+              "i am trying to", "i'm trying to", "i aim to",
+              "i hope to", "my dream", "my target"]),
+    ("fact", ["i am", "i'm", "i have", "i've", "i live",
+              "my name", "i work", "i study", "i am from",
+              "i'm from"]),
+    ("skill", ["i know", "i can", "i am good at", "i'm good at",
+               "i am experienced in", "i'm experienced in",
+               "i am proficient in", "i'm proficient in"]),
+]
 
 class MemoryExtractor:
 
@@ -13,139 +24,63 @@ class MemoryExtractor:
         self,
         memory_repo,
         embedding_service,
-        llm,
-        memory_validator
+        llm=None,
+        memory_validator=None
     ):
         self.memory_repo = memory_repo
         self.embedding_service = embedding_service
-        self.llm = llm
-        self.memory_validator = memory_validator
-        
-    def extract_memory(self, user_message): 
-        prompt = f"""
-            You are a memory extraction system for an AI assistant called AIKA.
 
-            Your job is to decide if the user message contains important information worth storing in long-term memory.
+    def extract_memory(self, user_message):
 
-            Return ONLY valid JSON.
+        text = f" {user_message.lower().strip()} "
 
-            Rules:
-            - Only store important, meaningful, or persistent information
-            - Ignore greetings, small talk, or temporary statements
-            - If the user is asking a question, do NOT store it
-            - Assign correct category
+        for category, patterns in MEMORY_PATTERNS:
 
-            Categories:
-            - fact
-            - project
-            - goal
-            - preference
-            - person
-            - skill
+            for pattern in patterns:
 
-            Importance scale:
-            1 = trivial
-            5 = normal
-            10 = critical (core identity or project)
+                if pattern in text:
 
-            Return format:
+                    idx = text.index(pattern) + len(pattern)
+                    content = text[idx:].strip().rstrip(".,!?;:")
 
-            {{
-            "store": true/false,
-            "content": "clean memory statement",
-            "category": "...",
-            "importance": 1-10
-            }}
+                    if len(content) < 3:
+                        continue
 
-            User message:
-            \"{user_message}\"
-            """
-        
-        response = self.llm.generate(prompt)
+                    full_content = f"User {category}: {content}"
 
-        # -----------------------------
-        # STEP 2: Parse LLM output
-        # -----------------------------
-        try:
-            data = json.loads(response)
-        except:
-            return None
+                    embedding = (
+                        self.embedding_service
+                        .generate_embedding(full_content)
+                    )
 
-        # -----------------------------
-        # STEP 3: Validate structured data
-        # -----------------------------
-        validated = self.memory_validator.validate(data)
+                    if embedding is None:
+                        return None
 
-        if not validated:
-            return None
+                    importance = {
+                        "project": 9,
+                        "goal": 8,
+                        "preference": 6,
+                        "fact": 5,
+                        "skill": 7
+                    }.get(category, 5)
 
-        if not validated.get("store"):
-            return None
+                    print("\n=== MEMORY STORED ===")
+                    print("Content:", full_content)
+                    print("Category:", category)
+                    print("Importance:", importance)
+                    print("=====================\n")
 
-        category = validated.get("category", data.get("category", "fact"))
-        importance = validated.get("importance", data.get("importance", 5))
+                    self.memory_repo.create(
+                        memory_type=category,
+                        content=full_content,
+                        embedding=embedding,
+                        category=category,
+                        importance=importance
+                    )
 
-        if importance is None:
-            importance = 5
+                    return {
+                        "category": category,
+                        "content": content
+                    }
 
-        # STRICT FILTER RULE
-        if category not in STRICT_STORE_CATEGORIES and importance < 7:
-            print("[MemoryExtractor] Rejected low-value memory:", category)
-            return None
-        
-        if category == "project":
-            importance = max(importance, 9)
-            validated["importance"] = importance
-
-        if category == "goal":
-            importance = max(importance, 8)
-            validated["importance"] = importance
-
-        # -----------------------------
-        # STEP 4: Use cleaned/validated output
-        # -----------------------------
-        raw_content = data.get("content", "")
-
-        normalized = validated.get("normalized_content")
-
-        if not normalized:
-            normalized = raw_content.strip()
-
-        content = normalized
-
-        # -----------------------------
-        # STEP 5: Generate embedding
-        # -----------------------------
-        embedding = (
-            self.embedding_service
-            .generate_embedding(content)
-        )
-
-        if embedding is None:
-
-            print(
-                "[MemoryExtractor] Failed to generate embedding"
-            )
-
-            return None
-
-
-        print("\n=== MEMORY STORING ===")
-        print("Content:", content)
-        print("Category:", category)
-        print("Importance:", importance)
-        print("======================\n")
-
-
-        # -----------------------------
-        # STEP 6: Store memory
-        # -----------------------------
-        self.memory_repo.create(
-            memory_type=category,
-            content=content,
-            embedding=embedding,
-            category=category,
-            importance=importance
-        )
-
-        return validated
+        return None

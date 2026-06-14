@@ -11,17 +11,10 @@ class MemorySearchTool(BaseTool):
 
     def __init__(
         self,
-        memory_repository,
-        embedding_service
+        retrieval_service
     ):
 
-        self.memory_repository = (
-            memory_repository
-        )
-
-        self.embedding_service = (
-            embedding_service
-        )
+        self.retrieval_service = retrieval_service
 
     @property
     def name(self):
@@ -33,22 +26,21 @@ class MemorySearchTool(BaseTool):
         query
     ):
 
-        query_embedding = (
-            self.embedding_service
-            .generate_embedding(query)
+        result = self.retrieval_service.retrieve(
+            query,
+            limit=5
         )
 
-        memories = (
-            self.memory_repository
-            .semantic_search(
-                query_embedding
-            )
-        )
+        if isinstance(result, str):
+            return {
+                "success": True,
+                "memories": [result]
+            }
 
         return {
             "success": True,
             "memories": [
                 memory.content
-                for memory in memories
+                for memory in result
             ]
         }

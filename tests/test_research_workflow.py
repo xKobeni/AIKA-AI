@@ -52,15 +52,20 @@ class MockSearchProvider:
 
         return [
             {
-                "title": "Test Result 1",
-                "url": "https://example.com/1",
-                "snippet": "Snippet about the topic"
+                "title": "Wikipedia Article",
+                "url": "https://en.wikipedia.org/wiki/Pgvector",
+                "snippet": "Wikipedia article about pgvector"
             },
             {
-                "title": "Test Result 2",
-                "url": "https://example.com/2",
-                "snippet": "More information"
-            }
+                "title": "GitHub Repo",
+                "url": "https://github.com/pgvector/pgvector",
+                "snippet": "Official GitHub repository"
+            },
+            {
+                "title": "Random Blog",
+                "url": "https://medium.com/pgvector-intro",
+                "snippet": "Blog post about pgvector"
+            },
         ]
 
 
@@ -87,11 +92,39 @@ def mock_execute(tool_name, **kwargs):
 
     if tool_name == "web_crawl":
 
+        urls = kwargs.get("urls")
+
+        if isinstance(urls, list):
+
+            pages = []
+
+            for url in urls:
+
+                pages.append({
+                    "url": url,
+                    "title": f"Page for {url}",
+                    "content": (
+                        "Mock crawled content about the topic. "
+                        "It contains useful information for research."
+                    ),
+                    "success": True,
+                    "error": ""
+                })
+
+            return {
+                "success": True,
+                "pages": pages,
+                "total": len(urls),
+                "crawled": len(pages)
+            }
+
+        url = kwargs.get("url", "")
+
         return {
             "success": True,
             "content": "Mock crawled content about the topic. "
                        "It contains useful information for research.",
-            "url": kwargs.get("url", ""),
+            "url": url,
             "title": "Mock Page"
         }
 
@@ -162,13 +195,25 @@ def tracking_store(tool_name, result, context):
         context_data["num_sources"] = len(
             context.get("sources", [])
         )
+        top = context.get("_top_sources", [])
+        context_data["top_sources_count"] = len(top)
+        if top:
+            context_data["top1_type"] = top[0].source_type
+        citations = context.get("_citations", [])
+        context_data["citations_count"] = len(citations)
     elif tool_name == "web_crawl":
         raw = context.get("_raw_pages", [])
         context_data["pages_crawled"] = len(raw)
+        if raw:
+            context_data["has_source_type"] = bool(
+                raw[0].get("source_type")
+            )
     elif tool_name == "content_process":
         context_data["research_content_captured"] = (
             context.get("research_content", "") != ""
         )
+        content = context.get("research_content", "")
+        context_data["has_source_type_label"] = "github" in content
     elif tool_name == "generate_report":
         context_data["report_captured"] = (
             context.get("report", "") != ""
@@ -185,12 +230,32 @@ if plan:
         context_data.get("sources_captured", False)
     )
     check(
-        "2 sources found",
-        context_data.get("num_sources", 0) == 2
+        "3 sources found",
+        context_data.get("num_sources", 0) == 3
     )
     check(
-        "pages were crawled",
-        context_data.get("pages_crawled", 0) >= 1
+        "top sources were ranked",
+        context_data.get("top_sources_count", 0) == 3
+    )
+    check(
+        "top source is github (highest score)",
+        context_data.get("top1_type", "") == "github"
+    )
+    check(
+        "citations were collected",
+        context_data.get("citations_count", 0) == 3
+    )
+    check(
+        "pages were crawled (from multi-source)",
+        context_data.get("pages_crawled", 0) == 3
+    )
+    check(
+        "crawled pages have source_type",
+        context_data.get("has_source_type", False)
+    )
+    check(
+        "source type labels in content",
+        context_data.get("has_source_type_label", False)
     )
     check(
         "research content was processed",

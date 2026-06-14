@@ -6,8 +6,8 @@ from tools.tool_permission import ToolPermission
 class WebCrawlTool(BaseTool):
 
     description = (
-        "Fetches a webpage and extracts "
-        "clean text content"
+        "Fetches one or more webpages and extracts "
+        "clean text content from each"
     )
     category = ToolCategory.WEB
     permission = ToolPermission.MEDIUM
@@ -19,21 +19,55 @@ class WebCrawlTool(BaseTool):
 
     def execute(
         self,
-        url
+        urls
     ):
 
         try:
 
-            result = self._crawl(url)
+            if isinstance(urls, str):
 
-            return result
+                result = self._crawl(urls)
+
+                return result
+
+            if isinstance(urls, list):
+
+                pages = []
+
+                for url in urls:
+
+                    crawl_result = self._crawl(url)
+
+                    pages.append({
+                        "url": crawl_result.get("url", url),
+                        "title": crawl_result.get("title", ""),
+                        "content": crawl_result.get("content", ""),
+                        "success": crawl_result.get("success", False),
+                        "error": crawl_result.get("error", "")
+                    })
+
+                successful = [
+                    p for p in pages if p.get("success")
+                ]
+
+                return {
+                    "success": len(successful) > 0,
+                    "pages": pages,
+                    "total": len(urls),
+                    "crawled": len(successful)
+                }
+
+            return {
+                "success": False,
+                "pages": [],
+                "error": "urls must be a string or list of strings"
+            }
 
         except Exception as e:
 
             return {
                 "success": False,
-                "content": "",
-                "url": url,
+                "pages": [],
                 "error": f"Crawl failed: {e}"
             }
 
