@@ -1,6 +1,8 @@
 from datetime import datetime
 
 from planner.execution_context import ExecutionContext
+from research.content_processor import ContentProcessor
+from research.report_generator import ReportGenerator
 
 
 class PlanExecutor:
@@ -13,6 +15,8 @@ class PlanExecutor:
 
         self.tool_manager = tool_manager
         self.llm = llm
+        self.content_processor = ContentProcessor()
+        self.report_generator = ReportGenerator(llm)
 
     def execute_plan(
         self,
@@ -43,6 +47,13 @@ class PlanExecutor:
                 if step.tool_name == "summarize":
 
                     result = self._run_summarize(context)
+
+                elif step.tool_name in (
+                    "content_process",
+                    "generate_report"
+                ):
+
+                    result = {"success": True}
 
                 else:
 
@@ -121,6 +132,36 @@ class PlanExecutor:
 
                 params["root_path"] = "."
 
+        if tool_name == "web_search":
+
+            if "query" in params:
+                context.set(
+                    "_research_query",
+                    params["query"]
+                )
+
+        if tool_name == "web_crawl":
+
+            sources = context.get("sources")
+
+            if sources and "url" not in params:
+
+                uncrawled = context.get(
+                    "_uncrawled_idx",
+                    0
+                )
+
+                if uncrawled < len(sources):
+
+                    params["url"] = sources[
+                        uncrawled
+                    ]["url"]
+
+                    context.set(
+                        "_uncrawled_idx",
+                        uncrawled + 1
+                    )
+
         return params
 
     def _run_summarize(
@@ -129,6 +170,12 @@ class PlanExecutor:
     ):
 
         content = context.get("file_content")
+
+        if not content:
+
+            content = context.get(
+                "research_content"
+            )
 
         if not content:
 
@@ -157,6 +204,79 @@ class PlanExecutor:
         result,
         context
     ):
+
+        if tool_name == "web_search":
+
+            if isinstance(result, dict):
+
+                context.set(
+                    "sources",
+                    result.get("results", [])
+                )
+
+            return
+
+        if tool_name == "web_crawl":
+
+            raw_pages = context.get(
+                "_raw_pages",
+                []
+            )
+
+            if isinstance(result, dict) and result.get("success"):
+
+                raw_pages.append({
+                    "url": result.get("url", ""),
+                    "content": result.get("content", "")
+                })
+
+            context.set("_raw_pages", raw_pages)
+
+            return
+
+        if tool_name == "content_process":
+
+            raw_pages = context.get(
+                "_raw_pages",
+                []
+            )
+
+            processed = (
+                self.content_processor.process(
+                    raw_pages
+                )
+            )
+
+            context.set(
+                "research_content",
+                processed
+            )
+
+            return
+
+        if tool_name == "generate_report":
+
+            query = context.get("_research_query", "")
+            content = context.get(
+                "research_content",
+                ""
+            )
+            summary = context.get(
+                "summary",
+                ""
+            )
+
+            report = (
+                self.report_generator.generate(
+                    query,
+                    content,
+                    summary
+                )
+            )
+
+            context.set("report", report)
+
+            return
 
         if tool_name == "summarize":
 
@@ -215,6 +335,21 @@ class PlanExecutor:
         goal,
         context
     ):
+
+        if goal == "research_report":
+
+            report = context.get("report")
+
+            if report:
+
+                return report
+
+            summary = context.get("summary")
+
+            if summary:
+                return summary
+
+            return "Research completed but no report was generated."
 
         if goal == "summarize":
 

@@ -91,4 +91,44 @@ class ToolHandler:
 
             return "No memories found."
 
+        if tool_name == "web_search":
+
+            results = result.get("results", [])
+
+            if results:
+
+                lines = []
+
+                for r in results:
+
+                    lines.append(
+                        f"{r.get('title', '')}\n"
+                        f"  URL: {r.get('url', '')}\n"
+                        f"  {r.get('snippet', '')}"
+                    )
+
+                return "\n\n".join(lines)
+
+            return result.get(
+                "error",
+                "No search results found."
+            )
+
+        if tool_name == "web_crawl":
+
+            if result.get("success"):
+
+                content = result.get("content", "")
+
+                return (
+                    content[:2000] + "..."
+                    if len(content) > 2000
+                    else content
+                )
+
+            return result.get(
+                "error",
+                "Failed to fetch page."
+            )
+
         return str(result)

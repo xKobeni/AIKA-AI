@@ -20,6 +20,8 @@ from tools.calculator_tool import CalculatorTool
 from tools.memory_search_tool import MemorySearchTool
 from tools.file_search_tool import FileSearchTool
 from tools.file_read_tool import FileReadTool
+from tools.web_search_tool import WebSearchTool
+from tools.web_crawl_tool import WebCrawlTool
 
 from llm.embedding_service import EmbeddingService
 
@@ -70,6 +72,12 @@ class AikaBrain:
         )
         self.tool_manager.register_tool(
             FileReadTool()
+        )
+        self.tool_manager.register_tool(
+            WebSearchTool()
+        )
+        self.tool_manager.register_tool(
+            WebCrawlTool()
         )
         
         self.tool_response_handler = ToolResponseHandler(

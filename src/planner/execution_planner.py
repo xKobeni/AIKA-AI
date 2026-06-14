@@ -4,6 +4,12 @@ from planner.plan_step import PlanStep
 
 class ExecutionPlanner:
 
+    RESEARCH_PREFIXES = [
+        "research ", "learn about ",
+        "investigate ", "study ",
+        "find information about "
+    ]
+
     SEARCH_PREFIXES = [
         "find and read ", "find and ",
         "search and read ", "search and ",
@@ -40,9 +46,61 @@ class ExecutionPlanner:
             for w in ["memory", "memories"]
         )
 
+        has_research = any(
+            text.startswith(p)
+            for p in self.RESEARCH_PREFIXES
+        )
+
         needs_summary = has_summarize or has_analyze
 
         query = self._extract_query(text)
+
+        # Workflow: research topic
+        if has_research:
+
+            search_query = self._extract_search_query(
+                text,
+                self.RESEARCH_PREFIXES
+            )
+
+            return Plan(
+                goal="research_report",
+                steps=[
+                    PlanStep(
+                        1,
+                        "web_search",
+                        {
+                            "query": search_query,
+                            "max_results": 5
+                        },
+                        "Search the web"
+                    ),
+                    PlanStep(
+                        2,
+                        "web_crawl",
+                        {},
+                        "Crawl top results"
+                    ),
+                    PlanStep(
+                        3,
+                        "content_process",
+                        {},
+                        "Process and combine content"
+                    ),
+                    PlanStep(
+                        4,
+                        "summarize",
+                        {},
+                        "Summarize research findings"
+                    ),
+                    PlanStep(
+                        5,
+                        "generate_report",
+                        {},
+                        "Generate structured report"
+                    )
+                ]
+            )
 
         # Workflow: read and summarize (direct file read + summarize)
         if needs_summary and has_read and not has_file_search:
