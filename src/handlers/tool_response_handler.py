@@ -1,3 +1,6 @@
+from config.settings import settings
+
+
 class ToolResponseHandler:
 
     def __init__(
@@ -13,28 +16,23 @@ class ToolResponseHandler:
         tool_result
     ):
 
-        prompt = f"""
-            You are AIKA, a memory-aware AI assistant.
+        persona = settings.load_persona()
 
-            User Question:
-            {user_message}
+        prompt = f"""{persona}
 
-            Tool Used:
-            {tool_name}
+User Question:
+{user_message}
 
-            Tool Result:
-            {tool_result}
+Tool Used:
+{tool_name}
 
-            RULES:
-            - ONLY use Tool Result.
-            - NEVER invent projects or facts.
-            - Present whatever information was found in Tool Result.
-            - If Tool Result contains project info, highlight it clearly.
-            - If Tool Result is truly empty, say nothing was found.
-            - Be concise and direct.
-            - Do NOT hallucinate extra context.
+Tool Result:
+{tool_result}
 
-            Return a natural assistant response.
-            """
+RULES:
+- Use the Tool Result to answer the user
+- Never invent information
+- If the result is empty, say so honestly
+- Respond naturally"""
 
         return self.llm.generate(prompt)

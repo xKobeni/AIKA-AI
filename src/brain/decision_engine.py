@@ -61,6 +61,40 @@ class DecisionEngine:
             return Action.DELETE_MEMORY
 
         # ============================
+        # OS / SHELL COMMANDS
+        # ============================
+
+        if text.startswith("run "):
+
+            logger.debug("-> USE_TOOL (shell)")
+
+            return Action.USE_TOOL
+
+        if text.startswith("open "):
+
+            logger.debug("-> USE_TOOL (app_launcher)")
+
+            return Action.USE_TOOL
+
+        if text.startswith("list ") or text.startswith("show "):
+
+            logger.debug("-> USE_TOOL (folder)")
+
+            return Action.USE_TOOL
+
+        if any(text.startswith(p) for p in [
+            "system info", "system health",
+            "system status", "how's my"
+        ]) or any(text == p for p in [
+            "system info", "system health",
+            "system status"
+        ]):
+
+            logger.debug("-> USE_TOOL (system_info)")
+
+            return Action.USE_TOOL
+
+        # ============================
         # PLAN EXECUTION (multi-step)
         # ============================
 

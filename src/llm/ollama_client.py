@@ -10,14 +10,21 @@ class OllamaClient:
 
     def generate(self, prompt):
 
+        separator = "\nUser:\n"
+        if separator in prompt:
+            parts = prompt.split(separator, 1)
+            messages = [
+                {"role": "system", "content": parts[0].strip()},
+                {"role": "user", "content": parts[1].strip()}
+            ]
+        else:
+            messages = [
+                {"role": "user", "content": prompt}
+            ]
+
         response = ollama.chat(
             model=self.model,
-            messages=[
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ]
+            messages=messages
         )
 
         return response["message"]["content"]

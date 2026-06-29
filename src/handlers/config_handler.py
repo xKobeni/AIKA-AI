@@ -20,6 +20,7 @@ CATEGORIES = {
     "validation": ["max_input_length", "max_calculation_length"],
     "tools": ["file_search_root_path", "file_read_encoding"],
     "paths": ["execution_log_path", "memory_data_path", "conversation_data_path"],
+    "persona": ["persona_path"],
     "logging": ["log_level", "log_format"],
 }
 
@@ -56,9 +57,23 @@ class ConfigHandler:
             logger.info("Settings reloaded from environment")
             return "Settings reloaded from environment."
 
+        if text == "!persona":
+
+            persona = settings.load_persona()
+            if persona:
+                return f"Current persona:\n\n{persona}"
+            return "No persona file found."
+
+        if text == "!persona reload":
+
+            if os.path.exists(settings.persona_path):
+                logger.info("Persona reloaded from %s", settings.persona_path)
+                return "Persona reloaded."
+            return f"Persona file not found: {settings.persona_path}"
+
         return (
             "Unknown config command.\n"
-            "Available: !settings [category], !set KEY=value, !save, !reload"
+            "Available: !settings [category], !set KEY=value, !save, !reload, !persona [reload]"
         )
 
     def _list_all(self):
@@ -196,6 +211,7 @@ class ConfigHandler:
             "conversation_data_path": "CONVERSATION_DATA_PATH",
             "log_level": "LOG_LEVEL",
             "log_format": "LOG_FORMAT",
+            "persona_path": "PERSONA_PATH",
         }
 
         return known_map.get(attr_name)

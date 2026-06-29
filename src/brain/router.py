@@ -160,6 +160,55 @@ class Router:
 
                 logger.debug("Route: USE_TOOL -> file_read")
 
+            elif user_message.lower().startswith("run "):
+
+                tool_request = ToolRequest(
+                    tool_name="shell",
+                    parameters={
+                        "command": user_message[4:].strip()
+                    }
+                )
+
+                logger.debug("Route: USE_TOOL -> shell")
+
+            elif user_message.lower().startswith("open "):
+
+                tool_request = ToolRequest(
+                    tool_name="app_launcher",
+                    parameters={
+                        "app_name": user_message[5:].strip()
+                    }
+                )
+
+                logger.debug("Route: USE_TOOL -> app_launcher")
+
+            elif user_message.lower().startswith("list ") or \
+                 user_message.lower().startswith("show "):
+
+                prefix = "list " if user_message.lower().startswith("list ") else "show "
+                path = user_message[len(prefix):].strip() or "."
+
+                tool_request = ToolRequest(
+                    tool_name="folder",
+                    parameters={
+                        "path": path
+                    }
+                )
+
+                logger.debug("Route: USE_TOOL -> folder")
+
+            elif any(user_message.lower().startswith(p) for p in [
+                "system info", "system health",
+                "system status", "how's my"
+            ]):
+
+                tool_request = ToolRequest(
+                    tool_name="system_info",
+                    parameters={}
+                )
+
+                logger.debug("Route: USE_TOOL -> system_info")
+
             else:
 
                 tool_name = "memory_search"

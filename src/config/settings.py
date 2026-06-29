@@ -1,5 +1,6 @@
 import os
 import logging
+from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -11,7 +12,7 @@ class Settings:
         # Database
         self.database_url: str = os.getenv(
             "DATABASE_URL",
-            "postgresql://postgres:1234@localhost:5432/AIKA_DB"
+            "postgresql://postgres:1234@localhost:5432/AIKA DB"
         )
 
         # LLM
@@ -65,9 +66,29 @@ class Settings:
         self.memory_data_path: str = os.getenv("MEMORY_DATA_PATH", "data/memories")
         self.conversation_data_path: str = os.getenv("CONVERSATION_DATA_PATH", "data/conversations")
 
+        # OS / Shell
+        self.shell_enabled: bool = os.getenv("SHELL_ENABLED", "true").lower() == "true"
+        self.shell_timeout: int = int(os.getenv("SHELL_TIMEOUT", "30"))
+        self.shell_blocked_keywords: list = os.getenv(
+            "SHELL_BLOCKED_KEYWORDS",
+            "rm -rf,format,del /,shutdown,rd /s,del /f,format c:,diskpart"
+        ).split(",")
+        self.app_launcher_enabled: bool = os.getenv("APP_LAUNCHER_ENABLED", "true").lower() == "true"
+
+        # Persona
+        self.persona_path: str = os.getenv("PERSONA_PATH", "src/config/persona.txt")
+
         # Logging
         self.log_level: str = os.getenv("LOG_LEVEL", "DEBUG")
         self.log_format: str = os.getenv("LOG_FORMAT", "[%(levelname)s] %(message)s")
+
+    def load_persona(self):
+        path = Path(self.persona_path)
+        if path.exists():
+            return path.read_text(encoding="utf-8").strip()
+        logger = logging.getLogger(__name__)
+        logger.warning("Persona file not found: %s", path)
+        return ""
 
     def reload(self):
         load_dotenv(override=True)

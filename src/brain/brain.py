@@ -28,6 +28,10 @@ from tools.file_search_tool import FileSearchTool
 from tools.file_read_tool import FileReadTool
 from tools.web_search_tool import WebSearchTool
 from tools.web_crawl_tool import WebCrawlTool
+from tools.shell_tool import ShellTool
+from tools.app_launcher_tool import AppLauncherTool
+from tools.folder_tool import FolderTool
+from tools.system_info_tool import SystemInfoTool
 
 from llm.embedding_service import EmbeddingService
 
@@ -103,6 +107,22 @@ class AikaBrain:
             MemorySearchTool(
                 self.memory_retrieval_service
             )
+        )
+
+        self.tool_manager.register_tool(
+            ShellTool()
+        )
+
+        self.tool_manager.register_tool(
+            AppLauncherTool()
+        )
+
+        self.tool_manager.register_tool(
+            FolderTool()
+        )
+
+        self.tool_manager.register_tool(
+            SystemInfoTool()
         )
 
         self.tool_response_handler = ToolResponseHandler(

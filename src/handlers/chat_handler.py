@@ -173,32 +173,22 @@ class ChatHandler:
         time_str = now.strftime("%H:%M")
         date_str = now.strftime("%A, %B %d, %Y")
 
-        prompt = f"""
-            You are AIKA, a memory-augmented AI assistant.
+        persona = settings.load_persona()
 
-            Current time: {time_str}
-            Current date: {date_str}
+        prompt = f"""{persona}
 
-            Known Memories:
-            {memory_context}
+Current time: {time_str}
+Current date: {date_str}
 
-            {conversation_block}
+Known Memories:
+{memory_context}
 
-            {web_results_block}
+{conversation_block}
 
-            User:
-            {user_message}
+{web_results_block}
 
-            RULES:
-            - The current time and date above are the real actual values. Use them exactly.
-            - When asked about the time, say something like "It's {time_str}."
-            - Never change or reformat the time. Never add AM/PM to 24-hour time.
-            - Use Known Memories and Web Search Results if available.
-            - If Web Search Results are provided, use them to answer.
-            - Never say you searched the web unless asked.
-            - Never make up information. If you don't know, say so.
-            - Respond naturally and maintain context.
-            """
+User:
+{user_message}"""
 
         # -------------------------
         # Generate Response
