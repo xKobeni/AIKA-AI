@@ -29,8 +29,9 @@ class ToolManager:
         tool = self.get_tool(tool_name)
 
         if not tool:
-            raise ValueError(
-                f"Tool '{tool_name}' not found."
-            )
+            return {
+                "success": False,
+                "error": f"Tool '{tool_name}' is not available"
+            }
 
         return tool.execute(**kwargs)

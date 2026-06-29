@@ -1,3 +1,6 @@
+from config.settings import settings
+
+
 class ToolHandler:
 
     def __init__(
@@ -7,6 +10,7 @@ class ToolHandler:
     ):
         self.tool_manager = tool_manager
         self.tool_response_handler = tool_response_handler
+        self.crawl_max_chars = settings.crawl_content_max_chars
 
     def handle(
         self,
@@ -121,8 +125,8 @@ class ToolHandler:
                 content = result.get("content", "")
 
                 return (
-                    content[:2000] + "..."
-                    if len(content) > 2000
+                    content[:self.crawl_max_chars] + "..."
+                    if len(content) > self.crawl_max_chars
                     else content
                 )
 

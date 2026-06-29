@@ -1,12 +1,11 @@
+from contextlib import contextmanager
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-
-DATABASE_URL = (
-    "postgresql://postgres:1234@localhost:5432/AIKA_DB" # can be configured via environment variables for flexibility
-)
+from config.settings import settings
 
 engine = create_engine(
-    DATABASE_URL
+    settings.database_url
 )
 
 SessionLocal = sessionmaker(
@@ -14,3 +13,16 @@ SessionLocal = sessionmaker(
     autoflush=False,
     bind=engine
 )
+
+
+@contextmanager
+def db_session():
+    db = SessionLocal()
+    try:
+        yield db
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()

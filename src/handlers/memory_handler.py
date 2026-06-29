@@ -1,4 +1,4 @@
-from repositories.memory_repository import MemoryRepository
+from config.settings import settings
 
 class MemoryHandler:
 
@@ -12,6 +12,7 @@ class MemoryHandler:
         self.memory_repo = memory_repo
         self.embedding_service = embedding_service
         self.retrieval_service = retrieval_service
+        self.retrieval_limit = settings.memory_retrieval_limit
 
     def store_memory(
         self,
@@ -92,7 +93,7 @@ class MemoryHandler:
 
             result = self.retrieval_service.retrieve(
                 query,
-                limit=5
+                limit=self.retrieval_limit
             )
 
             if isinstance(result, str):
@@ -150,7 +151,7 @@ class MemoryHandler:
 
             result = self.retrieval_service.retrieve(
                 query,
-                limit=5
+                limit=self.retrieval_limit
             )
 
             if isinstance(result, str):

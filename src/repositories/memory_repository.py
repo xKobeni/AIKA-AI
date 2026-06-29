@@ -1,175 +1,202 @@
-from database.db import SessionLocal
+from database.db import db_session
 from database.models import Memory
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import text
-from datetime import datetime
+from datetime import datetime, timezone
 import math
 import numpy as np
+from config.settings import settings
 
 class MemoryRepository:
 
     # Create a new memory entry
-    def create(self, memory_type, content, embedding, category="fact", importance=5):
+    def create(self, memory_type, content, embedding, category="fact", importance=5, profile_score=0):
 
-        db = SessionLocal()
+        with db_session() as db:
 
-        memory = Memory(
-            type=memory_type,
-            content=content,
-            embedding=embedding,
-            category=category,
-            importance=importance
-        )
+            memory = Memory(
+                type=memory_type,
+                content=content,
+                embedding=embedding,
+                category=category,
+                importance=importance,
+                profile_score=profile_score
+            )
 
-        db.add(memory)
-        db.commit()
-        db.refresh(memory)
+            db.add(memory)
+            db.flush()
+            db.refresh(memory)
 
-        db.close()
-
-        return memory
+            return memory
     
     # Get memories by category
     def get_by_category(self, category):
 
-        db = SessionLocal()
+        with db_session() as db:
 
-        memories = (
-            db.query(Memory)
-            .filter(Memory.category == category)
-            .all()
-        )
+            memories = (
+                db.query(Memory)
+                .filter(Memory.category == category)
+                .all()
+            )
 
-        db.close()
+            return memories
 
-        return memories
+    def get_by_categories(self, categories):
+
+        with db_session() as db:
+
+            memories = (
+                db.query(Memory)
+                .filter(Memory.category.in_(categories))
+                .all()
+            )
+
+            return memories
 
     # Memory retrieval methods
     def get_all(self):
 
-        db = SessionLocal()
+        with db_session() as db:
 
-        memories = (
-            db.query(Memory)
-            .order_by(Memory.id)
-            .all()
-        )
+            memories = (
+                db.query(Memory)
+                .order_by(Memory.id)
+                .all()
+            )
 
-        db.close()
-
-        return memories
+            return memories
 
 
     # Search memories by content
     def search(self, query):
 
-        db = SessionLocal()
+        with db_session() as db:
 
-        memories = (
-            db.query(Memory)
-            .filter(
-                Memory.content.ilike(
-                    f"%{query}%"
+            memories = (
+                db.query(Memory)
+                .filter(
+                    Memory.content.ilike(
+                        f"%{query}%"
+                    )
                 )
+                .all()
             )
-            .all()
-        )
 
-        db.close()
-
-        return memories
+            return memories
 
     # Delete a memory by ID
     def delete(self, memory_id):
 
-        db = SessionLocal()
+        with db_session() as db:
 
-        memory = (
-            db.query(Memory)
-            .filter(
-                Memory.id == memory_id
+            memory = (
+                db.query(Memory)
+                .filter(
+                    Memory.id == memory_id
+                )
+                .first()
             )
-            .first()
-        )
 
-        if memory:
+            if memory:
 
-            db.delete(memory)
-            db.commit()
+                db.delete(memory)
 
-        db.close()
+    # Update profile score for a memory
+    def update_profile_score(
+        self,
+        memory_id,
+        score
+    ):
+
+        with db_session() as db:
+
+            memory = (
+                db.query(Memory)
+                .filter(
+                    Memory.id == memory_id
+                )
+                .first()
+            )
+
+            if memory:
+
+                memory.profile_score = score
         
     def semantic_search(
         self,
         query_embedding,
-        limit=5,
-        min_score=0.3
+        limit=None,
+        min_score=None
     ):
 
-        db = SessionLocal()
+        if limit is None:
+            limit = settings.memory_retrieval_limit
+        if min_score is None:
+            min_score = settings.memory_min_score
 
-        candidate_limit = limit * 3
+        with db_session() as db:
 
-        candidates = (
-            db.query(Memory)
-            .filter(Memory.embedding.isnot(None))
-            .order_by(Memory.embedding.cosine_distance(query_embedding))
-            .limit(candidate_limit)
-            .all()
-        )
+            candidate_limit = limit * settings.memory_candidate_multiplier
 
-        db.close()
-
-        results = []
-
-        for memory in candidates:
-
-            similarity = self.cosine_similarity(
-                query_embedding,
-                memory.embedding
+            candidates = (
+                db.query(Memory)
+                .filter(Memory.embedding.isnot(None))
+                .order_by(Memory.embedding.cosine_distance(query_embedding))
+                .limit(candidate_limit)
+                .all()
             )
 
-            # RECENCY DECAY (exponential)
-            reference_time = memory.last_accessed or memory.created_at
-            if reference_time:
-                hours_since = (
-                    datetime.utcnow() - reference_time
-                ).total_seconds() / 3600
-                recency_score = math.exp(-hours_since / 720.0)
-            else:
-                recency_score = 0.0
+            results = []
 
-            # CATEGORY BOOST
-            category_boost = 0
+            for memory in candidates:
 
-            if memory.category == "project":
-                category_boost = 0.3
+                similarity = self.cosine_similarity(
+                    query_embedding,
+                    memory.embedding
+                )
 
-            elif memory.category == "goal":
-                category_boost = 0.2
+                # RECENCY DECAY (exponential)
+                now = datetime.now(timezone.utc)
+                reference_time = memory.last_accessed or memory.created_at
+                if reference_time:
+                    hours_since = (
+                        now - reference_time
+                    ).total_seconds() / 3600
+                    recency_score = math.exp(-hours_since / settings.memory_recency_half_life_hours)
+                else:
+                    recency_score = 0.0
 
-            elif memory.category == "skill":
-                category_boost = 0.1
+                # CATEGORY BOOST
+                category_boost = 0
 
-            score = (
-                similarity * 0.50 +
-                (memory.importance / 10.0) * 0.25 +
-                math.log(1 + memory.access_count) * 0.10 +
-                category_boost +
-                recency_score * 0.15
-            )
+                if memory.category == "project":
+                    category_boost = settings.memory_category_boost_project
+                elif memory.category == "goal":
+                    category_boost = settings.memory_category_boost_goal
+                elif memory.category == "skill":
+                    category_boost = settings.memory_category_boost_skill
 
-            if score < min_score:
-                continue
+                score = (
+                    similarity * settings.memory_sim_weight +
+                    (memory.importance / 10.0) * settings.memory_importance_weight +
+                    (memory.profile_score / 10.0) * settings.memory_profile_weight +
+                    math.log(1 + memory.access_count) * settings.memory_access_weight +
+                    category_boost +
+                    recency_score * settings.memory_recency_weight
+                )
 
-            results.append((memory, score))
+                if score < min_score:
+                    continue
 
-        results.sort(key=lambda x: x[1], reverse=True)
+                results.append((memory, score))
 
-        for m in results:
-            m[0]._score = m[1]
+            results.sort(key=lambda x: x[1], reverse=True)
 
-        return [m[0] for m in results[:limit]]
+            for m in results:
+                m[0]._score = m[1]
+
+            return [m[0] for m in results[:limit]]
     
     # Simple cosine similarity implementation
     def cosine_similarity(self, a, b):
@@ -189,25 +216,21 @@ class MemoryRepository:
         self,
         memory_id
     ):
-        
-        db = SessionLocal()
 
-        memory = (
-            db.query(Memory)
-            .filter(
-                Memory.id == memory_id
-            )
-            .first()
-        )
+        with db_session() as db:
 
-        if memory:
-
-            memory.access_count += 1
-
-            memory.last_accessed = (
-                datetime.utcnow()
+            memory = (
+                db.query(Memory)
+                .filter(
+                    Memory.id == memory_id
+                )
+                .first()
             )
 
-            db.commit()
+            if memory:
 
-        db.close()
+                memory.access_count += 1
+
+                memory.last_accessed = (
+                    datetime.now(timezone.utc)
+                )

@@ -1,3 +1,9 @@
+import logging
+
+from config.settings import settings
+
+logger = logging.getLogger(__name__)
+
 MEMORY_PATTERNS = [
     ("project", ["i am building", "i'm building", "i am working on",
                  "i'm working on", "my project", "my startup",
@@ -18,6 +24,14 @@ MEMORY_PATTERNS = [
                "i am proficient in", "i'm proficient in"]),
 ]
 
+IMPORTANCE_MAP = {
+    "project": 9,
+    "goal": 8,
+    "preference": 6,
+    "fact": 5,
+    "skill": 7
+}
+
 class MemoryExtractor:
 
     def __init__(
@@ -29,6 +43,7 @@ class MemoryExtractor:
     ):
         self.memory_repo = memory_repo
         self.embedding_service = embedding_service
+        self.log_level = settings.log_level
 
     def extract_memory(self, user_message):
 
@@ -56,19 +71,10 @@ class MemoryExtractor:
                     if embedding is None:
                         return None
 
-                    importance = {
-                        "project": 9,
-                        "goal": 8,
-                        "preference": 6,
-                        "fact": 5,
-                        "skill": 7
-                    }.get(category, 5)
+                    importance = IMPORTANCE_MAP.get(category, 5)
 
-                    print("\n=== MEMORY STORED ===")
-                    print("Content:", full_content)
-                    print("Category:", category)
-                    print("Importance:", importance)
-                    print("=====================\n")
+                    logger.info("Memory stored | content=%s | category=%s | importance=%d",
+                                full_content, category, importance)
 
                     self.memory_repo.create(
                         memory_type=category,

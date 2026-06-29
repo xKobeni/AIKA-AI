@@ -2,6 +2,7 @@ from pathlib import Path
 from tools.base_tool import BaseTool
 from tools.tool_category import ToolCategory
 from tools.tool_permission import ToolPermission
+from config.settings import settings
 
 
 class FileSearchTool(BaseTool):
@@ -9,6 +10,9 @@ class FileSearchTool(BaseTool):
     description = "Searches for files by name in the workspace"
     category = ToolCategory.FILE
     permission = ToolPermission.MEDIUM
+
+    def __init__(self):
+        self.max_results = 20
 
     @property
     def name(self):
@@ -18,12 +22,15 @@ class FileSearchTool(BaseTool):
     def execute(
         self,
         query,
-        root_path="."
+        root_path=None
     ):
 
-        results = []
+        if root_path is None:
+            root_path = settings.file_search_root_path
 
-        root = Path(root_path)
+        root = Path(root_path).resolve()
+
+        results = []
 
         for file in root.rglob("*"):
 
@@ -40,5 +47,5 @@ class FileSearchTool(BaseTool):
 
         return {
             "success": True,
-            "file_paths": results[:20]
+            "file_paths": results[:self.max_results]
         }

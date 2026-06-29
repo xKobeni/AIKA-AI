@@ -1,8 +1,12 @@
+from config.settings import settings
 from planner.plan import Plan
 from planner.plan_step import PlanStep
 
 
 class ExecutionPlanner:
+
+    def __init__(self):
+        self.web_search_max_results = settings.plan_web_search_max_results
 
     RESEARCH_PREFIXES = [
         "research ", "learn about ",
@@ -34,11 +38,11 @@ class ExecutionPlanner:
             for w in ["analyze", "review", "inspect", "research", "investigate"]
         )
         has_file_search = any(
-            text.startswith(p)
+            p in text
             for p in self.SEARCH_PREFIXES
         )
         has_read = any(
-            text.startswith(p)
+            p in text
             for p in self.READ_PREFIXES
         )
         has_memory = any(
@@ -47,7 +51,7 @@ class ExecutionPlanner:
         )
 
         has_research = any(
-            text.startswith(p)
+            p in text
             for p in self.RESEARCH_PREFIXES
         )
 
@@ -71,7 +75,7 @@ class ExecutionPlanner:
                         "web_search",
                         {
                             "query": search_query,
-                            "max_results": 5
+                            "max_results": self.web_search_max_results
                         },
                         "Search the web"
                     ),

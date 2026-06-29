@@ -1,5 +1,10 @@
 import time
+import logging
 from datetime import datetime
+
+from config.settings import settings
+
+logger = logging.getLogger(__name__)
 
 
 class ChatHandler:
@@ -18,6 +23,7 @@ class ChatHandler:
         self.memory_extractor = memory_extractor
         self.context_manager = context_manager
         self.tool_manager = tool_manager
+        self.log_level = settings.log_level
 
     def _should_search_web(self, user_message):
 
@@ -64,6 +70,15 @@ class ChatHandler:
     def chat(self, user_message):
 
         t_chat = time.time()
+
+        # -------------------------
+        # Input Validation
+        # -------------------------
+        if len(user_message) > settings.max_input_length:
+            return (
+                f"Message too long ({len(user_message)} chars). "
+                f"Maximum is {settings.max_input_length} characters."
+            )
 
         # -------------------------
         # Save User Message
@@ -122,7 +137,7 @@ class ChatHandler:
                 self.tool_manager.execute_tool(
                     "web_search",
                     query=search_query,
-                    max_results=5
+                    max_results=settings.web_search_max_results
                 )
             )
 
@@ -210,12 +225,17 @@ class ChatHandler:
         # -------------------------
         # Debug Summary
         # -------------------------
+        full_prompt = prompt.strip()
+        prompt_tokens = max(1, len(full_prompt.split()) * 3 // 2)
         t_total = time.time() - t_chat
         web_status = (
             f"{t_web:.2f}s ({n_results} results)"
             if web_results_block
             else "skipped"
         )
-        print(f"[DEBUG]   Context: {t_context:.2f}s | Web: {web_status} | LLM: {t_llm:.2f}s")
+        logger.debug(
+            "Context: %.2fs | Web: %s | LLM: %.2fs | Prompt tokens: ~%d",
+            t_context, web_status, t_llm, prompt_tokens
+        )
 
         return response

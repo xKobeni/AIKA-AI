@@ -1,9 +1,15 @@
 import re
+import logging
 
 from models.actions import Action
 
+logger = logging.getLogger(__name__)
+
 
 class DecisionEngine:
+
+    def __init__(self, intent_classifier=None):
+        self.intent_classifier = intent_classifier
 
     def decide(self, user_input: str):
 
@@ -15,13 +21,13 @@ class DecisionEngine:
 
         if text.startswith("remember "):
 
-            print("[Decision Engine] -> STORE_MEMORY")
+            logger.debug("-> STORE_MEMORY")
 
             return Action.STORE_MEMORY
 
         if text == "memories":
 
-            print("[Decision Engine] -> LIST_MEMORIES")
+            logger.debug("-> LIST_MEMORIES")
 
             return Action.LIST_MEMORIES
 
@@ -40,19 +46,17 @@ class DecisionEngine:
                 for w in web_search_followups
             ):
 
-                print(
-                    "[Decision Engine] -> USE_TOOL (web_search)"
-                )
+                logger.debug("-> USE_TOOL (web_search)")
 
                 return Action.USE_TOOL
 
-            print("[Decision Engine] -> SEARCH_MEMORY")
+            logger.debug("-> SEARCH_MEMORY")
 
             return Action.SEARCH_MEMORY
 
         if text.startswith("forget "):
 
-            print("[Decision Engine] -> DELETE_MEMORY")
+            logger.debug("-> DELETE_MEMORY")
 
             return Action.DELETE_MEMORY
 
@@ -79,9 +83,7 @@ class DecisionEngine:
             for p in multi_step_patterns
         ):
 
-            print(
-                "[Decision Engine] -> PLAN_EXECUTION"
-            )
+            logger.debug("-> PLAN_EXECUTION")
 
             return Action.PLAN_EXECUTION
 
@@ -94,110 +96,7 @@ class DecisionEngine:
             text
         ):
 
-            print(
-                "[Decision Engine] -> USE_TOOL (calculator)"
-            )
-
-            return Action.USE_TOOL
-
-        # ============================
-        # TOOL: WEB SEARCH
-        # ============================
-
-        web_search_phrases = [
-            "weather",
-            "forecast",
-            "search the internet",
-            "search for ",
-            "look up ",
-            "find online",
-            "google ",
-            "latest news",
-            "current ",
-            "who is ",
-            "what is a ",
-            "where is ",
-            "how to ",
-            "when did ",
-            "define ",
-            "meaning of",
-            "news about",
-            "information about",
-            "web search",
-            "search online",
-            "browse "
-        ]
-
-        if any(
-            phrase in text
-            for phrase in web_search_phrases
-        ):
-            print(
-                "[Decision Engine] -> USE_TOOL (web_search)"
-            )
-            return Action.USE_TOOL
-
-        # ============================
-        # TOOL: MEMORY SEARCH
-        # ============================
-
-        memory_phrases = [
-
-            "what projects",
-
-            "what project",
-
-            "what am i working on",
-
-            "working on",
-
-            "what do you know about me",
-
-            "what do you know",
-
-            "tell me about me",
-
-            "what have i told you",
-
-            "what is my",
-
-            "what are my",
-
-            "favorite",
-
-            "preferences",
-
-            "my goals",
-
-            "my goal",
-
-            "my plans",
-
-            "my plan",
-
-            " tell me about",
-
-            "project",
-
-            "projects",
-
-            "goal",
-
-            "goals",
-
-            "plan",
-
-            "plans"
-        ]
-
-        if any(
-            phrase in text
-            for phrase in memory_phrases
-        ):
-
-            print(
-                "[Decision Engine] -> USE_TOOL (memory_search)"
-            )
+            logger.debug("-> USE_TOOL (calculator)")
 
             return Action.USE_TOOL
 
@@ -207,9 +106,7 @@ class DecisionEngine:
 
         if text.startswith("find "):
 
-            print(
-                "[Decision Engine] -> USE_TOOL (file_search)"
-            )
+            logger.debug("-> USE_TOOL (file_search)")
 
             return Action.USE_TOOL
 
@@ -219,11 +116,19 @@ class DecisionEngine:
 
         if text.startswith("read "):
 
-            print(
-                "[Decision Engine] -> USE_TOOL (file_read)"
-            )
+            logger.debug("-> USE_TOOL (file_read)")
 
             return Action.USE_TOOL
+
+        # ============================
+        # CONFIG COMMANDS
+        # ============================
+
+        if text.startswith("!"):
+
+            logger.debug("-> CONFIGURE (%s)", text)
+
+            return Action.CONFIGURE
 
         # ============================
         # CLEAR CONVERSATION
@@ -237,12 +142,26 @@ class DecisionEngine:
             "clear"
         ):
 
-            print("[Decision Engine] -> CLEAR_CONVERSATION")
+            logger.debug("-> CLEAR_CONVERSATION")
 
             return Action.CLEAR_CONVERSATION
 
         # ============================
-        # LLM FALLBACK
+        # INTENT CLASSIFIER FALLBACK
         # ============================
+
+        if self.intent_classifier:
+
+            result = self.intent_classifier.classify(text)
+
+            action = result["action"]
+            tool_name = result.get("tool_name")
+
+            if tool_name:
+                logger.debug("-> %s (%s)", action.value, tool_name)
+            else:
+                logger.debug("-> %s", action.value)
+
+            return action
 
         return Action.CHAT

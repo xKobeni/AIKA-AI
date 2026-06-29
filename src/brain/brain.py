@@ -1,7 +1,10 @@
-import threading
 import time
+import logging
+from concurrent.futures import ThreadPoolExecutor
 
+from config.settings import settings
 from brain.decision_engine import DecisionEngine
+from brain.intent_classifier import LLMIntentClassifier
 from llm.ollama_client import OllamaClient
 
 from handlers.memory_handler import MemoryHandler
@@ -13,6 +16,7 @@ from repositories.conversation_repository import ConversationRepository
 from handlers.memory_extractor import MemoryExtractor
 from handlers.tool_response_handler import ToolResponseHandler
 from handlers.tool_handler import ToolHandler
+from handlers.config_handler import ConfigHandler
 
 from brain.context_manager import ContextManager
 from brain.router import Router
@@ -33,6 +37,13 @@ from memory.memory_retrieval_service import (
 
 from planner.execution_planner import ExecutionPlanner
 from planner.plan_executor import PlanExecutor
+
+
+logging.basicConfig(
+    level=getattr(logging, settings.log_level.upper(), logging.DEBUG),
+    format=settings.log_format
+)
+logger = logging.getLogger(__name__)
 
 
 class AikaBrain:
@@ -87,7 +98,13 @@ class AikaBrain:
         self.tool_manager.register_tool(
             WebCrawlTool()
         )
-        
+
+        self.tool_manager.register_tool(
+            MemorySearchTool(
+                self.memory_retrieval_service
+            )
+        )
+
         self.tool_response_handler = ToolResponseHandler(
             self.llm
         )
@@ -95,12 +112,6 @@ class AikaBrain:
         self.tool_handler = ToolHandler(
             self.tool_manager,
             self.tool_response_handler
-        )
-        
-        self.tool_manager.register_tool(
-            MemorySearchTool(
-                self.memory_retrieval_service
-            )
         )
 
         # Execution Planner
@@ -110,8 +121,13 @@ class AikaBrain:
             self.llm
         )
 
+        # Intent Classifier
+        self.intent_classifier = LLMIntentClassifier()
+
         # Decision Engine
-        self.decision_engine = DecisionEngine()
+        self.decision_engine = DecisionEngine(
+            intent_classifier=self.intent_classifier
+        )
 
         # Handlers
         self.memory_handler = MemoryHandler(
@@ -129,6 +145,9 @@ class AikaBrain:
             tool_manager=self.tool_manager
         )
 
+        # Config Handler
+        self.config_handler = ConfigHandler()
+
         # Router
         self.router = Router(
             self.memory_handler,
@@ -136,9 +155,15 @@ class AikaBrain:
             tool_handler=self.tool_handler,
             conversation_repo=self.conversation_repo,
             planner=self.planner,
-            executor=self.executor
+            executor=self.executor,
+            intent_classifier=self.intent_classifier,
+            config_handler=self.config_handler
         )
-        
+
+        self._executor = ThreadPoolExecutor(
+            max_workers=2,
+            thread_name_prefix="aika"
+        )
 
     def process(self, user_message):
 
@@ -157,15 +182,14 @@ class AikaBrain:
 
         total = time.time() - t0
 
-        print(f"[DEBUG] {'-'*45}")
-        print(f"[DEBUG] Decision: {decision.value} | Total: {total:.2f}s")
+        logger.debug("%s", "-" * 45)
+        logger.debug("Decision: %s | Total: %.2fs", decision.value, total)
 
         # Background memory extraction (non-blocking)
-        threading.Thread(
-            target=self.chat_handler.memory_extractor.extract_memory,
-            args=(user_message,),
-            daemon=True
-        ).start()
-        print(f"[DEBUG] Memory extraction -> background")
+        self._executor.submit(
+            self.chat_handler.memory_extractor.extract_memory,
+            user_message
+        )
+        logger.debug("Memory extraction -> background")
 
         return response

@@ -33,9 +33,9 @@ logs/
 *.db
 *.sqlite3
 
-# AIKA Local Storage (legacy)
+# AIKA Local Storage (legacy - data directory only)
 
-memory/
+data/memory/
 
 # Build Artifacts
 

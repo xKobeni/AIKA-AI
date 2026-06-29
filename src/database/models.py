@@ -10,7 +10,7 @@ from sqlalchemy.orm import (
     mapped_column
 )
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from database.base import Base
 
@@ -59,7 +59,12 @@ class Memory(Base):
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
-        default=datetime.utcnow
+        default=lambda: datetime.now(timezone.utc)
+    )
+
+    profile_score: Mapped[int] = mapped_column(
+        Integer,
+        default=0
     )
     
 # -----------------------------------------------------------------------------
@@ -84,5 +89,5 @@ class Conversation(Base):
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
-        default=datetime.utcnow
+        default=lambda: datetime.now(timezone.utc)
     )

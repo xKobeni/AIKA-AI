@@ -1,8 +1,12 @@
 import time
 import re
+import logging
 
+from config.settings import settings
 from models.actions import Action
 from models.tool_request import ToolRequest
+
+logger = logging.getLogger(__name__)
 
 class Router:
 
@@ -13,7 +17,9 @@ class Router:
         tool_handler,
         conversation_repo=None,
         planner=None,
-        executor=None
+        executor=None,
+        intent_classifier=None,
+        config_handler=None
     ):
 
         self.memory_handler = memory_handler
@@ -22,6 +28,8 @@ class Router:
         self.conversation_repo = conversation_repo
         self.planner = planner
         self.executor = executor
+        self.intent_classifier = intent_classifier
+        self.config_handler = config_handler
 
     def route(
         self,
@@ -36,13 +44,13 @@ class Router:
             result = self.memory_handler.store_memory(
                 user_message
             )
-            print(f"[DEBUG] Route: STORE_MEMORY ({time.time()-t0:.2f}s)")
+            logger.debug("Route: STORE_MEMORY (%.2fs)", time.time() - t0)
             return result
 
         if action == Action.LIST_MEMORIES:
 
             result = self.memory_handler.list_memories()
-            print(f"[DEBUG] Route: LIST_MEMORIES ({time.time()-t0:.2f}s)")
+            logger.debug("Route: LIST_MEMORIES (%.2fs)", time.time() - t0)
             return result
 
         if action == Action.SEARCH_MEMORY:
@@ -50,7 +58,7 @@ class Router:
             result = self.memory_handler.search_memory(
                 user_message[7:]
             )
-            print(f"[DEBUG] Route: SEARCH_MEMORY ({time.time()-t0:.2f}s)")
+            logger.debug("Route: SEARCH_MEMORY (%.2fs)", time.time() - t0)
             return result
 
         if action == Action.DELETE_MEMORY:
@@ -68,7 +76,7 @@ class Router:
             result = self.memory_handler.delete_memory(
                 memory_id
             )
-            print(f"[DEBUG] Route: DELETE_MEMORY ({time.time()-t0:.2f}s)")
+            logger.debug("Route: DELETE_MEMORY (%.2fs)", time.time() - t0)
             return result
 
         if action == Action.PLAN_EXECUTION:
@@ -87,18 +95,27 @@ class Router:
                 )
 
             result = self.executor.execute_plan(plan)
-            print(f"[DEBUG] Route: PLAN_EXECUTION ({time.time()-t0:.2f}s)")
+            logger.debug("Route: PLAN_EXECUTION (%.2fs)", time.time() - t0)
             return result
 
         if action == Action.CLEAR_CONVERSATION:
 
             self.conversation_repo.clear()
             return "Conversation history cleared."
-            
+
+        if action == Action.CONFIGURE:
+
+            if not self.config_handler:
+                return "Configuration system is not available."
+
+            result = self.config_handler.handle(user_message)
+            logger.debug("Route: CONFIGURE (%.2fs)", time.time() - t0)
+            return result
+
         if action == Action.CHAT:
 
             result = self.chat_handler.chat(user_message)
-            print(f"[DEBUG] Route: CHAT ({time.time()-t0:.2f}s)")
+            logger.debug("Route: CHAT (%.2fs)", time.time() - t0)
             return result
             
         if action == Action.USE_TOOL:
@@ -115,7 +132,7 @@ class Router:
                     }
                 )
 
-                print("[DEBUG] Route: USE_TOOL -> calculator")
+                logger.debug("Route: USE_TOOL -> calculator")
 
             elif user_message.lower().startswith(
                 "find "
@@ -128,7 +145,7 @@ class Router:
                     }
                 )
 
-                print("[DEBUG] Route: USE_TOOL -> file_search")
+                logger.debug("Route: USE_TOOL -> file_search")
 
             elif user_message.lower().startswith(
                 "read "
@@ -141,82 +158,47 @@ class Router:
                     }
                 )
 
-                print("[DEBUG] Route: USE_TOOL -> file_read")
-
-            elif self._is_web_search(user_message):
-
-                tool_request = ToolRequest(
-                    tool_name="web_search",
-                    parameters={
-                        "query": user_message,
-                        "max_results": 5
-                    }
-                )
-
-                print("[DEBUG] Route: USE_TOOL -> web_search")
-
-            elif self._is_referential(user_message):
-
-                tool_request = ToolRequest(
-                    tool_name="web_search",
-                    parameters={
-                        "query": user_message,
-                        "max_results": 5
-                    }
-                )
-
-                print("[DEBUG] Route: USE_TOOL -> web_search (referential)")
+                logger.debug("Route: USE_TOOL -> file_read")
 
             else:
 
-                tool_request = ToolRequest(
-                    tool_name="memory_search",
-                    parameters={
-                        "query": user_message
-                    }
-                )
+                tool_name = "memory_search"
 
-                print("[DEBUG] Route: USE_TOOL -> memory_search")
+                if self.intent_classifier:
+                    result = self.intent_classifier.classify(
+                        user_message
+                    )
+                    tool_name = result.get(
+                        "tool_name", "memory_search"
+                    )
+
+                if tool_name == "web_search":
+                    tool_request = ToolRequest(
+                        tool_name="web_search",
+                        parameters={
+                            "query": user_message,
+                            "max_results": settings.web_search_max_results
+                        }
+                    )
+                    logger.debug("Route: USE_TOOL -> web_search")
+                elif tool_name == "file_search":
+                    tool_request = ToolRequest(
+                        tool_name="file_search",
+                        parameters={
+                            "query": user_message
+                        }
+                    )
+                    logger.debug("Route: USE_TOOL -> file_search")
+                else:
+                    tool_request = ToolRequest(
+                        tool_name="memory_search",
+                        parameters={
+                            "query": user_message
+                        }
+                    )
+                    logger.debug("Route: USE_TOOL -> memory_search")
 
             result = self.tool_handler.handle(tool_request)
-            print(f"[DEBUG] Route: Total: {time.time()-t0:.2f}s")
+            logger.debug("Route: Total: %.2fs", time.time() - t0)
             return result
 
-    @staticmethod
-    def _is_referential(text):
-
-        referential_words = [
-            " it ", " it'", " that ", " this ",
-            " these ", " those ", " they ", " them",
-            "what is it", "tell me more",
-            "explain", "elaborate", "go on"
-        ]
-        t = text.lower()
-        return any(w in t for w in referential_words)
-
-    @staticmethod
-    def _is_web_search(text):
-        web_search_phrases = [
-            "weather",
-            "forecast",
-            "search the internet",
-            "search for ",
-            "look up ",
-            "find online",
-            "google ",
-            "latest news",
-            "current ",
-            "who is ",
-            "what is a ",
-            "where is ",
-            "how to ",
-            "when did ",
-            "define ",
-            "meaning of",
-            "news about",
-            "information about",
-            "web search",
-            "search online",
-            "browse "
-        ]
-        return any(phrase in text.lower() for phrase in web_search_phrases)

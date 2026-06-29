@@ -2,6 +2,7 @@ from pathlib import Path
 from tools.base_tool import BaseTool
 from tools.tool_category import ToolCategory
 from tools.tool_permission import ToolPermission
+from config.settings import settings
 
 
 class FileReadTool(BaseTool):
@@ -10,13 +11,26 @@ class FileReadTool(BaseTool):
     category = ToolCategory.FILE
     permission = ToolPermission.MEDIUM
 
+    def __init__(self):
+        self.encoding = settings.file_read_encoding
+
     @property
     def name(self):
         return "file_read"
 
-    def execute(self, file_path, root_path="."):
+    def execute(self, file_path, root_path=None):
 
-        path = Path(root_path) / file_path
+        if root_path is None:
+            root_path = settings.file_search_root_path
+
+        root = Path(root_path).resolve()
+        path = (root / file_path).resolve()
+
+        if not str(path).startswith(str(root)):
+            return {
+                "success": False,
+                "error": "Access denied: path is outside workspace"
+            }
 
         if not path.exists():
             return {
@@ -32,7 +46,7 @@ class FileReadTool(BaseTool):
 
         try:
             content = path.read_text(
-                encoding="utf-8",
+                encoding=self.encoding,
                 errors="replace"
             )
 

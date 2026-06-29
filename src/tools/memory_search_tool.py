@@ -1,6 +1,7 @@
 from tools.base_tool import BaseTool
 from tools.tool_category import ToolCategory
 from tools.tool_permission import ToolPermission
+from config.settings import settings
 
 
 class MemorySearchTool(BaseTool):
@@ -15,6 +16,7 @@ class MemorySearchTool(BaseTool):
     ):
 
         self.retrieval_service = retrieval_service
+        self.retrieval_limit = settings.memory_retrieval_limit
 
     @property
     def name(self):
@@ -28,7 +30,7 @@ class MemorySearchTool(BaseTool):
 
         result = self.retrieval_service.retrieve(
             query,
-            limit=5
+            limit=self.retrieval_limit
         )
 
         if isinstance(result, str):

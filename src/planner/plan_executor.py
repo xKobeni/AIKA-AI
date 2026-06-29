@@ -1,9 +1,13 @@
+import logging
 from datetime import datetime
 
+from config.settings import settings
 from planner.execution_context import ExecutionContext
 from research.content_processor import ContentProcessor
 from research.report_generator import ReportGenerator
 from research.source_ranker import SourceRanker
+
+logger = logging.getLogger(__name__)
 
 
 class PlanExecutor:
@@ -19,6 +23,8 @@ class PlanExecutor:
         self.content_processor = ContentProcessor()
         self.report_generator = ReportGenerator(llm)
         self.source_ranker = SourceRanker()
+        self.log_path = settings.execution_log_path
+        self.top_sources_count = settings.plan_top_sources_count
 
     def execute_plan(
         self,
@@ -39,9 +45,9 @@ class PlanExecutor:
 
             step_start = datetime.now()
 
-            print(
-                f"[PlanExecutor] Step {step.step_id}: "
-                f"{step.tool_name} - {step.description}"
+            logger.debug(
+                "Step %d: %s - %s",
+                step.step_id, step.tool_name, step.description
             )
 
             try:
@@ -81,6 +87,22 @@ class PlanExecutor:
                 elapsed = (
                     datetime.now() - step_start
                 ).total_seconds()
+
+                # Check tool failure
+                if isinstance(result, dict) and not result.get("success", True):
+                    error_msg = result.get("error", "Unknown error")
+                    self._log(
+                        f"Step {step.step_id} FAIL | "
+                        f"{step.tool_name} | {elapsed:.2f}s | {error_msg}"
+                    )
+                    # If web_search fails mid-research, return partial results
+                    if step.tool_name == "web_search":
+                        return (
+                            f"I couldn't find information on that topic: {error_msg}"
+                        )
+                    return (
+                        f"I had trouble with step '{step.description}': {error_msg}"
+                    )
 
                 self._log(
                     f"Step {step.step_id} OK | "
@@ -211,7 +233,7 @@ class PlanExecutor:
 
                 top = self.source_ranker.select_top(
                     ranked,
-                    n=3
+                    n=self.top_sources_count
                 )
 
                 context.set(
@@ -508,7 +530,7 @@ class PlanExecutor:
         try:
 
             with open(
-                "logs/execution.log",
+                self.log_path,
                 "a",
                 encoding="utf-8"
             ) as f:

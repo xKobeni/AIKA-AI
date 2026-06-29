@@ -1,9 +1,11 @@
 import ollama
+from config.settings import settings
 
 
 class EmbeddingService:
 
-    MODEL = "nomic-embed-text"
+    def __init__(self):
+        self.model = settings.embedding_model
 
     def generate_embedding(
         self,
@@ -16,14 +18,10 @@ class EmbeddingService:
             return None
 
         response = ollama.embed(
-            model=self.MODEL,
+            model=self.model,
             input=text
         )
         
-        # print("\n=== EMBEDDING RESPONSE ===")
-        # print(response)
-        # print("==========================\n")
-
         embeddings = response.get(
             "embeddings",
             []
