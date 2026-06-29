@@ -2,7 +2,7 @@
 
 > **Status:** Currently in development. Features and APIs are unstable and subject to change.
 
-A CLI-based AI assistant that runs entirely locally. Features persistent memory with vector search, tool execution, multi-step planning, and web research — all powered by Ollama.
+AIKA AI is a living desktop companion that observes, remembers, and grows with its user through emotions, memory, and intelligent behavior — powered entirely by local Ollama models and PostgreSQL with vector search.
 
 ## Features
 
