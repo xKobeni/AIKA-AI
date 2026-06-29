@@ -43,6 +43,7 @@ source .venv/bin/activate
 
 ```bash
 pip install -r requirements.txt
+playwright install          # Required by crawl4ai for web crawling
 ```
 
 Key packages:
@@ -53,10 +54,12 @@ Key packages:
 | `psycopg2-binary` | PostgreSQL adapter |
 | `python-dotenv` | Environment variable loading |
 | `pgvector` | Vector similarity search |
-| `crawl4ai` | Web crawling |
+| `crawl4ai` | Web crawling (requires Playwright) |
+| `playwright` | Browser automation for crawl4ai |
 | `ddgs` | DuckDuckGo search |
 | `httpx` | HTTP client |
 | `numpy` | Numerical operations |
+| `psutil` | System information (CPU, RAM, disk) |
 
 ---
 

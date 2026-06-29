@@ -38,6 +38,7 @@ class Router:
     ):
 
         t0 = time.time()
+        text = user_message.strip()
 
         if action == Action.STORE_MEMORY:
 
@@ -122,71 +123,71 @@ class Router:
 
             if re.match(
                 r"^[0-9+\-*/(). ]+$",
-                user_message
+                text
             ):
 
                 tool_request = ToolRequest(
                     tool_name="calculator",
                     parameters={
-                        "expression": user_message
+                        "expression": text
                     }
                 )
 
                 logger.debug("Route: USE_TOOL -> calculator")
 
-            elif user_message.lower().startswith(
+            elif text.lower().startswith(
                 "find "
             ):
 
                 tool_request = ToolRequest(
                     tool_name="file_search",
                     parameters={
-                        "query": user_message
+                        "query": text
                     }
                 )
 
                 logger.debug("Route: USE_TOOL -> file_search")
 
-            elif user_message.lower().startswith(
+            elif text.lower().startswith(
                 "read "
             ):
 
                 tool_request = ToolRequest(
                     tool_name="file_read",
                     parameters={
-                        "file_path": user_message[5:]
+                        "file_path": text[5:]
                     }
                 )
 
                 logger.debug("Route: USE_TOOL -> file_read")
 
-            elif user_message.lower().startswith("run "):
+            elif text.lower().startswith("run "):
 
                 tool_request = ToolRequest(
                     tool_name="shell",
                     parameters={
-                        "command": user_message[4:].strip()
+                        "command": text[4:].strip()
                     }
                 )
 
                 logger.debug("Route: USE_TOOL -> shell")
 
-            elif user_message.lower().startswith("open "):
+            elif text.lower().startswith("open "):
 
                 tool_request = ToolRequest(
                     tool_name="app_launcher",
                     parameters={
-                        "app_name": user_message[5:].strip()
+                        "app_name": text[5:].strip()
                     }
                 )
 
                 logger.debug("Route: USE_TOOL -> app_launcher")
 
-            elif user_message.lower().startswith("list ") or \
-                 user_message.lower().startswith("show "):
+            elif text.lower().startswith("list ") or \
+                 text.lower().startswith("show "):
 
-                prefix = "list " if user_message.lower().startswith("list ") else "show "
-                path = user_message[len(prefix):].strip() or "."
+                prefix = "list " if text.lower().startswith("list ") else "show "
+                path = text[len(prefix):].strip() or "."
 
                 tool_request = ToolRequest(
                     tool_name="folder",
@@ -197,7 +198,7 @@ class Router:
 
                 logger.debug("Route: USE_TOOL -> folder")
 
-            elif any(user_message.lower().startswith(p) for p in [
+            elif any(text.lower().startswith(p) for p in [
                 "system info", "system health",
                 "system status", "how's my"
             ]):
@@ -215,7 +216,7 @@ class Router:
 
                 if self.intent_classifier:
                     result = self.intent_classifier.classify(
-                        user_message
+                        text
                     )
                     tool_name = result.get(
                         "tool_name", "memory_search"
@@ -225,7 +226,7 @@ class Router:
                     tool_request = ToolRequest(
                         tool_name="web_search",
                         parameters={
-                            "query": user_message,
+                            "query": text,
                             "max_results": settings.web_search_max_results
                         }
                     )
@@ -234,7 +235,7 @@ class Router:
                     tool_request = ToolRequest(
                         tool_name="file_search",
                         parameters={
-                            "query": user_message
+                            "query": text
                         }
                     )
                     logger.debug("Route: USE_TOOL -> file_search")
@@ -242,7 +243,7 @@ class Router:
                     tool_request = ToolRequest(
                         tool_name="memory_search",
                         parameters={
-                            "query": user_message
+                            "query": text
                         }
                     )
                     logger.debug("Route: USE_TOOL -> memory_search")

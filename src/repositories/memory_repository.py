@@ -160,6 +160,8 @@ class MemoryRepository:
                 now = datetime.now(timezone.utc)
                 reference_time = memory.last_accessed or memory.created_at
                 if reference_time:
+                    if reference_time.tzinfo is None:
+                        reference_time = reference_time.replace(tzinfo=timezone.utc)
                     hours_since = (
                         now - reference_time
                     ).total_seconds() / 3600
