@@ -27,6 +27,25 @@ class WebSearchTool(BaseTool):
 
         return "web_search"
 
+    def get_schema(self):
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "query": {
+                    "type": "string",
+                    "required": True,
+                    "description": "Search query"
+                },
+                "max_results": {
+                    "type": "integer",
+                    "required": False,
+                    "default": 5,
+                    "description": "Maximum number of results"
+                }
+            }
+        }
+
     def execute(
         self,
         query,

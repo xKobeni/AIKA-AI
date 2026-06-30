@@ -17,3 +17,10 @@ class BaseTool(ABC):
     @abstractmethod
     def execute(self, **kwargs):
         pass
+
+    def get_schema(self):
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {}
+        }

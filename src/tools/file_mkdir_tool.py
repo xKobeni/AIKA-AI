@@ -5,39 +5,42 @@ from tools.tool_permission import ToolPermission
 from config.settings import settings
 
 
-class FileReadTool(BaseTool):
+class FileMkdirTool(BaseTool):
 
-    description = "Reads the content of a text file"
+    description = "Creates a directory"
     category = ToolCategory.FILE
     permission = ToolPermission.MEDIUM
 
-    def __init__(self):
-        self.encoding = settings.file_read_encoding
-
     @property
     def name(self):
-        return "file_read"
+        return "file_mkdir"
 
     def get_schema(self):
         return {
             "name": self.name,
             "description": self.description,
             "parameters": {
-                "file_path": {
+                "dir_path": {
                     "type": "string",
                     "required": True,
-                    "description": "Path to the file to read"
+                    "description": "Path of the directory to create"
+                },
+                "parents": {
+                    "type": "boolean",
+                    "required": False,
+                    "default": True,
+                    "description": "Create parent directories if needed"
                 }
             }
         }
 
-    def execute(self, file_path, root_path=None):
+    def execute(self, dir_path, parents=True, root_path=None):
 
         if root_path is None:
             root_path = settings.file_search_root_path
 
         root = Path(root_path).resolve()
-        path = (root / file_path).resolve()
+        path = (root / dir_path).resolve()
 
         if not str(path).startswith(str(root)):
             return {
@@ -45,32 +48,24 @@ class FileReadTool(BaseTool):
                 "error": "Access denied: path is outside workspace"
             }
 
-        if not path.exists():
+        if path.exists():
             return {
                 "success": False,
-                "error": f"File not found: {file_path}"
-            }
-
-        if not path.is_file():
-            return {
-                "success": False,
-                "error": f"Not a file: {file_path}"
+                "error": f"Directory already exists: {dir_path}"
             }
 
         try:
-            content = path.read_text(
-                encoding=self.encoding,
-                errors="replace"
-            )
+            path.mkdir(parents=parents, exist_ok=False)
 
             return {
                 "success": True,
-                "content": content
+                "dir_path": str(path),
+                "message": f"Created directory: {dir_path}"
             }
 
         except Exception as e:
 
             return {
                 "success": False,
-                "error": f"Error reading file: {e}"
+                "error": f"Error creating directory: {e}"
             }

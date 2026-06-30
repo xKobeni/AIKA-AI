@@ -52,12 +52,18 @@ AIKA builds a user profile by scoring memories against categories (project, goal
 
 ### Chat with LLM
 
-All chat is processed through a local Ollama model. Context is built from:
+All chat is processed through a local Ollama model with automatic model selection:
+
+- **Fast model (qwen2.5:3b)** — Simple greetings, short questions, intent classification, reflection
+- **Smart model (llama3:8b)** — Complex analysis, code writing, multi-step tasks, long messages
+
+Context is built from:
 
 - User profile (relevant memories by category)
 - Recent conversation history (scoped to current session)
 - Web search results (when automatically triggered)
 - Current time and date
+- Persona (personality traits and behavior)
 
 ### Session-Scoped Context
 
@@ -149,6 +155,86 @@ When you use keywords like `research`, `investigate`, or `find information about
 
 ---
 
+## LLM Tool Calling
+
+AIKA uses LLM-driven tool calling instead of rule-based prefix matching. The LLM decides which tools to use based on the user's request and available tool schemas.
+
+### How It Works
+
+1. **Tool schemas** are sent to the LLM as JSON definitions
+2. **LLM responds** with either:
+   - `{"tool": "tool_name", "parameters": {...}}` — to call a tool
+   - `{"tool": null, "response": "..."}` — to respond directly
+3. **Agent loop** executes the tool, feeds the result back to the LLM
+4. **Dynamic chaining** — LLM decides next step based on previous results
+5. **Automatic escalation** — If tool fails or task is complex, escalates to smart model
+
+### Example Flow
+
+```
+User: "find and read the main file"
+→ LLM: {"tool": "file_search", "parameters": {"query": "main"}}
+→ Tool: Found: src/main.py
+→ LLM: {"tool": "file_read", "parameters": {"path": "src/main.py"}}
+→ Tool: (file content)
+→ LLM: "The main file contains the entry point for AIKA..."
+```
+
+### Legacy Fallback
+
+If `TOOL_CALLING_ENABLED=false` or LLM parsing fails twice, AIKA falls back to the original rule-based DecisionEngine + Router.
+
+---
+
+## Auto Model Switching
+
+AIKA automatically selects between a fast model and a smart model based on task complexity.
+
+### Model Tiers
+
+| Tier | Model | Use For |
+|------|-------|---------|
+| Fast | qwen2.5:3b | Simple chat, greetings, intent classification, reflection |
+| Smart | llama3:8b | Complex analysis, code writing, multi-step reasoning |
+
+### Selection Logic
+
+The `ModelRouter` analyzes each message and selects the appropriate model:
+
+| Factor | Fast Model | Smart Model |
+|--------|-----------|-------------|
+| Task type | Intent, reflection, simple_chat | Plan, report, file_content |
+| Keywords | (none) | analyze, research, write code, debug, refactor |
+| Message length | ≤ 20 words | > 20 words |
+| Question complexity | Simple (≤ 12 words) | Complex (> 12 words) |
+| Iteration count | 0-1 | ≥ 2 (escalation) |
+| Tool failure | — | Auto-escalate to smart |
+
+### Configuration
+
+| Variable | Default | Description |
+|---|---|---|
+| `FAST_MODEL` | `qwen2.5:3b` | Fast model for simple tasks |
+| `SMART_MODEL` | `llama3:8b` | Smart model for complex tasks |
+
+### Runtime Commands
+
+```
+You > !model
+AIKA > Models:
+         fast:  qwen2.5:3b
+         smart: llama3:8b
+         chat:  llama3:8b
+
+You > !model fast qwen2.5:3b
+AIKA > Model fast: qwen2.5:3b -> qwen2.5:3b
+
+You > !model smart llama3:8b
+AIKA > Model smart: llama3:8b -> llama3:8b
+```
+
+---
+
 ## File Operations
 
 ### File Search
@@ -159,13 +245,53 @@ Recursively searches the workspace for files by name. Sandboxed to `FILE_SEARCH_
 
 Reads file content and returns it. Path traversal is blocked — any resolved path outside the configured root is rejected.
 
+### File Read Range
+
+Reads specific line ranges from files. Useful for reading portions of large files.
+
+### File Write
+
+Creates or overwrites files. Includes permission checks for high-risk operations.
+
+### File Edit
+
+Edits files using string replacement. Supports multiple edits in a single operation.
+
+### File Multi-Edit
+
+Edits multiple files in a single operation. Useful for batch changes across a codebase.
+
+### File Delete
+
+Deletes files. Requires confirmation for high-risk operations.
+
+### File Append
+
+Appends content to existing files.
+
+### File Grep
+
+Searches file contents using regex patterns.
+
+### File Mkdir
+
+Creates directories.
+
 ### Commands
 
 | Command | Description |
 |---|---|
 | `find <name>` | Search for files matching name |
 | `read <path>` | Read file content |
+| `read <path> lines 10-20` | Read specific line range |
 | `find and read <name>` | Search then read |
+| `write <path> <content>` | Create/overwrite file |
+| `edit <path> "old" "new"` | String replacement edit |
+| `multi-edit <files>` | Edit multiple files |
+| `delete <path>` | Delete file |
+| `append <path> <content>` | Append to file |
+| `grep <pattern> [path]` | Search file contents |
+| `mkdir <path>` | Create directory |
 
 ---
 
@@ -246,6 +372,29 @@ Reports OS, CPU, RAM, disk usage, Python version, and uptime using `psutil`.
 | Disk usage | `psutil.disk_usage()` |
 | Uptime | `psutil.boot_time()` |
 
+### Git Operations
+
+Performs git operations on the workspace.
+
+```
+> git status
+> git diff
+> git log
+> git commit "message"
+> git branch
+> git checkout main
+> git add .
+```
+
+### Test Runner
+
+Runs pytest or unittest tests.
+
+```
+> run tests
+> test tests/test_agent_loop.py
+```
+
 ---
 
 ## Calculator
@@ -273,6 +422,13 @@ All settings are configurable at runtime without restarting via the `!` command 
 | `!set KEY=value` | Change a setting at runtime |
 | `!save` | Persist changes to `.env` file |
 | `!reload` | Reload all settings from `.env` |
+| `!model` | Show current models (fast/smart/chat) |
+| `!model <name>` | Switch chat model |
+| `!model fast <name>` | Switch fast model |
+| `!model smart <name>` | Switch smart model |
+| `!log <level>` | Change log level (debug/info/warning/error) |
+| `!persona` | Display current persona |
+| `!persona reload` | Reload persona from file |
 
 ### Categories
 
@@ -285,6 +441,9 @@ All settings are configurable at runtime without restarting via the `!` command 
 > !set CHAT_MODEL=llama3.1:8b
 > !set LOG_LEVEL=INFO
 > !save
+> !model
+> !model fast qwen2.5:3b
+> !log warning
 ```
 
 ---
@@ -326,9 +485,14 @@ When rule-based matching doesn't recognize a command, AIKA falls back to an LLM-
 | Variable | Default | Description |
 |---|---|---|
 | `CHAT_MODEL` | `qwen2.5:3b` | Ollama model for chat |
+| `FAST_MODEL` | `qwen2.5:3b` | Fast model for simple tasks |
+| `SMART_MODEL` | `llama3:8b` | Smart model for complex tasks |
 | `EMBEDDING_MODEL` | `nomic-embed-text` | Ollama model for embeddings |
 | `OLLAMA_HOST` | `http://localhost:11434` | Ollama server URL |
 | `LLM_TIMEOUT` | `30` | LLM request timeout (seconds) |
+| `TOOL_CALLING_ENABLED` | `true` | Enable LLM-driven tool calling |
+| `TOOL_CALL_MAX_PARAMS_LENGTH` | `5000` | Max parameter length for tool calls |
+| `TOOL_CALL_CONFIRM_HIGH` | `false` | Confirm high-risk tool operations |
 
 ### Database
 

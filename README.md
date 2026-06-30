@@ -7,13 +7,15 @@ AIKA is a living desktop companion that observes, remembers, and grows with its 
 ## Features
 
 - **Local LLM** — Chat via Ollama (Qwen, Llama, Mistral, etc.)
+- **LLM Tool Calling** — LLM decides which tools to use via JSON output, with dynamic multi-step chaining
+- **Auto Model Switching** — Automatically uses fast model (qwen2.5:3b) for simple tasks and smart model (llama3:8b) for complex reasoning
 - **Long-term Memory** — Automatic extraction, semantic search with recency/importance/profile scoring, user profile building
 - **Session Management** — Sessions with scoped context, new/list/resume/delete commands, auto-generated summaries
-- **Tool Use** — Calculator (safe AST), file search/read (sandboxed), web search (DuckDuckGo), web crawling
+- **Tool Use** — Calculator, file search/read/write/edit/delete, web search, web crawling, git operations, test runner
 - **OS Tools** — Shell execution (with safety controls), app launcher (with system-wide Registry + Start Menu + UWP scanning), folder listing, system information
 - **Planning** — Decomposes complex requests into executable step-by-step plans
 - **Research** — Multi-source web research with relevance ranking and structured report generation
-- **Configuration System** — View and change all settings at runtime (`!settings`, `!set`, `!save`, `!reload`)
+- **Configuration System** — View and change all settings at runtime (`!settings`, `!set`, `!save`, `!reload`, `!model`, `!log`)
 - **Editable Persona** — Personality defined in a plain text file, editable without restarting (`!persona`, `!persona reload`)
 
 ## Quick Start

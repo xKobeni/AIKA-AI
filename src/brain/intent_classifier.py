@@ -15,6 +15,8 @@ class LLMIntentClassifier:
         "or anything requiring internet search\n"
         "FILE_SEARCH - Asking to read, find, or inspect "
         "files, code, or source files in the project\n"
+        "FILE_WRITE - Asking to create, write, save, "
+        "or generate a file or document\n"
         "MEMORY_SEARCH - Asking about personal information, "
         "stored preferences, goals, projects, "
         "or previous conversations\n"
@@ -26,7 +28,7 @@ class LLMIntentClassifier:
     )
 
     def __init__(self):
-        self.model = settings.chat_model
+        self.model = settings.fast_model
         self._last_text = None
         self._last_result = None
 
@@ -62,6 +64,11 @@ class LLMIntentClassifier:
             result = {
                 "action": Action.USE_TOOL,
                 "tool_name": "file_search"
+            }
+        elif intent == "FILE_WRITE":
+            result = {
+                "action": Action.USE_TOOL,
+                "tool_name": "file_write"
             }
         elif intent == "MEMORY_SEARCH":
             result = {

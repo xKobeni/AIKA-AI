@@ -80,6 +80,21 @@ class ConversationRepository:
 
             return list(reversed(conversations))
 
+    def search_across_sessions(self, query_embedding, current_session_id, limit=5):
+
+        with db_session() as db:
+
+            conversations = (
+                db.query(Conversation)
+                .filter(Conversation.embedding.isnot(None))
+                .filter(Conversation.session_id != current_session_id)
+                .order_by(Conversation.embedding.l2_distance(query_embedding))
+                .limit(limit)
+                .all()
+            )
+
+            return list(reversed(conversations))
+
     def get_by_role(self, role, limit=10):
 
         with db_session() as db:

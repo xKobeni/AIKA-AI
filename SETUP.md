@@ -97,11 +97,12 @@ Key packages:
 3. **Pull the required models:**
 
    ```bash
-   ollama pull qwen2.5:3b        # Chat model
+   ollama pull qwen2.5:3b        # Fast model (simple tasks, intent classification)
+   ollama pull llama3:8b          # Smart model (complex reasoning, tool calling)
    ollama pull nomic-embed-text   # Embedding model
    ```
 
-   > You can change the models later via the `.env` file.
+   > AIKA auto-switches between fast and smart models based on task complexity.
 
 ---
 
@@ -118,9 +119,12 @@ Required variables:
 | Variable | Default | Description |
 |---|---|---|
 | `CHAT_MODEL` | `qwen2.5:3b` | Ollama model for chat responses |
+| `FAST_MODEL` | `qwen2.5:3b` | Fast model for simple tasks (greetings, intent classification) |
+| `SMART_MODEL` | `llama3:8b` | Smart model for complex tasks (analysis, code writing) |
 | `EMBEDDING_MODEL` | `nomic-embed-text` | Ollama model for embeddings |
 | `OLLAMA_HOST` | `http://localhost:11434` | Ollama server URL |
 | `DATABASE_URL` | `postgresql://postgres:1234@localhost:5432/AIKA_DB` | PostgreSQL connection string |
+| `TOOL_CALLING_ENABLED` | `true` | Enable LLM-driven tool calling |
 | `LOG_LEVEL` | `DEBUG` | Logging verbosity |
 
 > **Security note:** `.env` is git-ignored. Never commit secrets to the repository.
@@ -178,6 +182,12 @@ python -m pytest tests/
 - Run `ollama serve` in a separate terminal.
 - Confirm `OLLAMA_HOST=http://localhost:11434` in `.env`.
 - Verify the required models are pulled (`ollama list`).
+- For auto model switching, ensure both `FAST_MODEL` and `SMART_MODEL` are pulled.
+
+### Model not found
+- If you see "model not found" errors, run `ollama list` to see available models.
+- Pull missing models: `ollama pull <model_name>`.
+- Check `FAST_MODEL` and `SMART_MODEL` in `.env` match your pulled models.
 
 ### `pgvector` type "vector" does not exist
 - Connect to the `AIKA_DB` database and run `CREATE EXTENSION vector;`.

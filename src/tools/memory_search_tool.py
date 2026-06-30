@@ -23,6 +23,19 @@ class MemorySearchTool(BaseTool):
 
         return "memory_search"
 
+    def get_schema(self):
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "query": {
+                    "type": "string",
+                    "required": True,
+                    "description": "What to search for in memories"
+                }
+            }
+        }
+
     def execute(
         self,
         query

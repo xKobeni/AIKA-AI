@@ -20,6 +20,13 @@ class SystemInfoTool(BaseTool):
     def name(self):
         return "system_info"
 
+    def get_schema(self):
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {}
+        }
+
     def execute(self):
 
         info = []

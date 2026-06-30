@@ -10,6 +10,8 @@ class MemoryIntent(Enum):
     PERSON = "person"
     FACT = "fact"
     PROFILE = "profile"
+    DECISION = "decision"
+    OUTCOME = "outcome"
 
 
 class MemoryIntentAnalyzer:
@@ -36,6 +38,14 @@ class MemoryIntentAnalyzer:
         MemoryIntent.PERSON: [
             "family", "friend", "friends", "person",
             "people", "know about", "tell me about"
+        ],
+        MemoryIntent.DECISION: [
+            "decided", "chose", "chosen", "agreed",
+            "settled on", "went with", "decision"
+        ],
+        MemoryIntent.OUTCOME: [
+            "result", "outcome", "worked", "failed",
+            "learned", "turned out", "succeeded"
         ],
     }
 
@@ -74,9 +84,11 @@ class MemoryIntentAnalyzer:
             MemoryIntent.SKILL: ["skill"],
             MemoryIntent.PERSON: ["person"],
             MemoryIntent.FACT: ["fact"],
+            MemoryIntent.DECISION: ["decision"],
+            MemoryIntent.OUTCOME: ["outcome"],
             MemoryIntent.PROFILE: [
                 "project", "goal", "preference",
-                "skill", "person"
+                "skill", "person", "decision", "outcome"
             ],
             MemoryIntent.GENERAL: [],
         }

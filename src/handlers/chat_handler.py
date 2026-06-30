@@ -18,7 +18,8 @@ class ChatHandler:
         tool_manager=None,
         session_id=None,
         embedding_service=None,
-        session_repo=None
+        session_repo=None,
+        model_router=None
     ):
 
         self.conversation_repo = conversation_repo
@@ -29,6 +30,7 @@ class ChatHandler:
         self.session_id = session_id
         self.embedding_service = embedding_service
         self.session_repo = session_repo
+        self.model_router = model_router
         self.log_level = settings.log_level
 
     def _should_search_web(self, user_message):
@@ -141,6 +143,10 @@ class ChatHandler:
             context["conversation_context"]
         )
 
+        cross_session_context = context.get(
+            "cross_session_context", ""
+        )
+
         if conversation_context.strip():
             conversation_block = (
                 f"Recent Conversation:\n"
@@ -150,6 +156,14 @@ class ChatHandler:
             conversation_block = (
                 "(No recent conversation history)"
             )
+
+        if cross_session_context.strip():
+            cross_session_block = (
+                f"Relevant Past Discussions:\n"
+                f"{cross_session_context}"
+            )
+        else:
+            cross_session_block = ""
 
         # -------------------------
         # Reflexive Web Search
@@ -220,6 +234,8 @@ Known Memories:
 
 {conversation_block}
 
+{cross_session_block}
+
 {web_results_block}
 
 User:
@@ -231,8 +247,12 @@ Speak with warmth and emotion. Be conversational — use casual language, expres
         # Generate Response
         # -------------------------
         t0 = time.time()
-        response = self.llm.generate(
-            prompt
+        use_model = None
+        if self.model_router:
+            use_model = self.model_router.select(user_message, task_type="chat")
+        response = self.llm.generate_with_model(
+            prompt,
+            model=use_model
         )
         t_llm = time.time() - t0
 

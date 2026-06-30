@@ -1,7 +1,8 @@
 class MemoryProfileBuilder:
 
     PREFERRED_CATEGORIES = [
-        "project", "goal", "preference", "skill"
+        "project", "goal", "preference", "skill",
+        "person", "decision", "outcome"
     ]
 
     def __init__(self, memory_repo):

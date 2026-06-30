@@ -17,6 +17,19 @@ class WebCrawlTool(BaseTool):
 
         return "web_crawl"
 
+    def get_schema(self):
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "urls": {
+                    "type": "string",
+                    "required": True,
+                    "description": "URL or list of URLs to crawl"
+                }
+            }
+        }
+
     def execute(
         self,
         urls

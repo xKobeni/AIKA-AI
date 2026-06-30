@@ -6,11 +6,14 @@ Practical examples for every feature. Run AIKA with `python src\main.py`.
 
 ## Chat
 
-Just type naturally. AIKA responds with context from your memories and recent conversation.
+Just type naturally. AIKA responds with context from your memories and recent conversation. The model auto-switches between fast (qwen2.5:3b) for simple tasks and smart (llama3:8b) for complex ones.
 
 ```
 You > hello Aika
-AIKA > Hey! How's it going?
+AIKA > Hey! How's it going?   (uses fast model)
+
+You > analyze the architecture of this codebase
+AIKA > (uses smart model for complex analysis)
 
 You > what's the weather like?
 AIKA > Let me check... (automatically searches the web)
@@ -121,6 +124,9 @@ AIKA > (returns file content)
 
 You > read .env
 AIKA > (returns .env content)
+
+You > read src/main.py lines 1-50
+AIKA > (returns lines 1-50)
 ```
 
 ### Combined find and read
@@ -134,6 +140,39 @@ AIKA > Reads main.py → generates LLM summary
 
 You > find and summarize config
 AIKA > Searches for "config" → reads found file → summarizes
+```
+
+### Edit files
+
+```
+You > edit src/config/settings.py "old_value" "new_value"
+AIKA > (performs string replacement)
+
+You > multi-edit src/config/settings.py src/.env
+AIKA > (edits multiple files in one operation)
+```
+
+### Git operations
+
+```
+You > git status
+AIKA > (shows git status)
+
+You > git commit "fix: update settings"
+AIKA > (commits changes)
+
+You > git diff
+AIKA > (shows diff)
+```
+
+### Run tests
+
+```
+You > run tests
+AIKA > (runs pytest)
+
+You > test tests/test_agent_loop.py
+AIKA > (runs specific test file)
 ```
 
 ---
@@ -185,6 +224,7 @@ Deleting the current session automatically creates a new one.
 ```
 You [a3f2] > help
 AIKA > Commands: new session, list sessions, resume <id>, delete session <id>, clear, help, exit
+       Config: !settings, !set, !save, !reload, !model, !log, !persona
 ```
 
 ---
@@ -300,6 +340,8 @@ All settings can be viewed and changed at runtime.
 ```
 You > !settings
 AIKA > chat_model = qwen2.5:3b
+       fast_model = qwen2.5:3b
+       smart_model = llama3:8b
        embedding_model = nomic-embed-text
        ollama_host = http://localhost:11434
        ...
@@ -310,9 +352,12 @@ AIKA > chat_model = qwen2.5:3b
 ```
 You > !settings llm
 AIKA > chat_model = qwen2.5:3b
+       fast_model = qwen2.5:3b
+       smart_model = llama3:8b
        embedding_model = nomic-embed-text
        ollama_host = http://localhost:11434
        llm_timeout = 30
+       tool_calling_enabled = True
 
 You > !settings memory
 AIKA > memory_retrieval_limit = 8
@@ -348,6 +393,39 @@ Reloads all values from `.env`, discarding runtime changes.
 ```
 You > !reload
 AIKA > Settings reloaded from environment.
+```
+
+### Model switching
+
+View and switch between fast and smart models:
+
+```
+You > !model
+AIKA > Models:
+         fast:  qwen2.5:3b
+         smart: llama3:8b
+         chat:  llama3:8b
+
+You > !model fast qwen2.5:3b
+AIKA > Model fast: qwen2.5:3b -> qwen2.5:3b
+
+You > !model smart llama3:8b
+AIKA > Model smart: llama3:8b -> llama3:8b
+
+You > !model llama3:8b
+AIKA > Model switched: qwen2.5:3b -> llama3:8b
+```
+
+### Log level
+
+```
+You > !log
+AIKA > Current log level: DEBUG
+       Usage: !log <level>
+       Levels: debug, info, warning, error
+
+You > !log warning
+AIKA > Log level: DEBUG -> WARNING
 ```
 
 ---
@@ -427,6 +505,21 @@ You > !reload
 ```
 
 Also confirm Ollama is running (`ollama serve`) and the model is pulled (`ollama pull qwen2.5:3b`).
+
+### Model not found
+
+If you see "model not found" errors:
+
+```
+You > !model
+AIKA > Models:
+         fast:  qwen2.5:3b
+         smart: llama3:8b
+         chat:  llama3:8b
+```
+
+Verify both models are pulled: `ollama list`
+Pull missing models: `ollama pull <model_name>`
 
 ---
 

@@ -22,15 +22,41 @@ MEMORY_PATTERNS = [
     ("skill", ["i know", "i can", "i am good at", "i'm good at",
                "i am experienced in", "i'm experienced in",
                "i am proficient in", "i'm proficient in"]),
+    ("person", ["my friend", "my wife", "my husband", "my partner",
+                "my boss", "my colleague", "my teacher",
+                "i work with", "i met", "my family",
+                "my mom", "my dad", "my brother", "my sister"]),
+    ("decision", ["i decided", "i chose", "we agreed", "i went with",
+                  "i chose to", "i decided to", "i settled on",
+                  "we decided", "the plan is", "the decision is"]),
+    ("outcome", ["it worked", "it failed", "the result was",
+                 "i learned that", "it turned out", "what happened",
+                 "the outcome", "in the end", "as a result",
+                 "it succeeded"]),
 ]
 
 IMPORTANCE_MAP = {
     "project": 9,
     "goal": 8,
+    "decision": 8,
+    "skill": 7,
+    "person": 7,
+    "outcome": 7,
     "preference": 6,
     "fact": 5,
-    "skill": 7
 }
+
+CATEGORY_WEIGHTS = {
+    "project": 0.3,
+    "goal": 0.2,
+    "skill": 0.1,
+    "preference": 0.05,
+    "person": 0.1,
+    "decision": 0.15,
+    "outcome": 0.1,
+    "fact": 0.0,
+}
+
 
 class MemoryExtractor:
 
@@ -44,12 +70,42 @@ class MemoryExtractor:
         self.memory_repo = memory_repo
         self.embedding_service = embedding_service
         self.log_level = settings.log_level
+        self.dedup_threshold = settings.memory_dedup_threshold
+        self.max_per_message = settings.memory_extraction_max_per_message
+
+    def _is_duplicate(self, content, category):
+        try:
+            embedding = self.embedding_service.generate_embedding(content)
+            if embedding is None:
+                return False
+
+            existing = self.memory_repo.semantic_search(
+                embedding, limit=1
+            )
+
+            if existing and len(existing) > 0:
+                score = getattr(existing[0], '_score', 0)
+                if score >= self.dedup_threshold:
+                    logger.debug(
+                        "Memory dedup: '%s' too similar to existing (score=%.2f)",
+                        content[:50], score
+                    )
+                    return True
+
+        except Exception as e:
+            logger.debug("Dedup check failed: %s", e)
+
+        return False
 
     def extract_memory(self, user_message, source_conversation_id=None):
 
         text = f" {user_message.lower().strip()} "
+        extracted = []
 
         for category, patterns in MEMORY_PATTERNS:
+
+            if len(extracted) >= self.max_per_message:
+                break
 
             for pattern in patterns:
 
@@ -61,6 +117,9 @@ class MemoryExtractor:
                     if len(content) < 3:
                         continue
 
+                    if self._is_duplicate(content, category):
+                        continue
+
                     full_content = f"User {category}: {content}"
 
                     embedding = (
@@ -69,12 +128,14 @@ class MemoryExtractor:
                     )
 
                     if embedding is None:
-                        return None
+                        continue
 
                     importance = IMPORTANCE_MAP.get(category, 5)
 
-                    logger.info("Memory stored | content=%s | category=%s | importance=%d",
-                                full_content, category, importance)
+                    logger.info(
+                        "Memory stored | content=%s | category=%s | importance=%d",
+                        full_content, category, importance
+                    )
 
                     self.memory_repo.create(
                         memory_type=category,
@@ -85,9 +146,11 @@ class MemoryExtractor:
                         source_conversation_id=source_conversation_id
                     )
 
-                    return {
+                    extracted.append({
                         "category": category,
                         "content": content
-                    }
+                    })
 
-        return None
+                    break
+
+        return extracted[0] if len(extracted) == 1 else extracted or None

@@ -60,6 +60,19 @@ class CalculatorTool(BaseTool):
                 "error": f"Calculation error: {e}"
             }
 
+    def get_schema(self):
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "expression": {
+                    "type": "string",
+                    "required": True,
+                    "description": "Mathematical expression to evaluate, e.g. '2 + 2 * 3'"
+                }
+            }
+        }
+
     def _eval_node(self, node):
 
         if isinstance(node, ast.Constant):

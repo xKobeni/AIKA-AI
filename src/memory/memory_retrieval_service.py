@@ -70,6 +70,14 @@ class MemoryRetrievalService:
             intent
         )
 
+        for memory in memories:
+            profile_score = self._compute_profile_score(memory)
+            if profile_score != memory.profile_score:
+                self.memory_repo.update_profile_score(
+                    memory.id, profile_score
+                )
+                memory.profile_score = profile_score
+
         ranked = self.ranker.rank(memories, intent)
 
         diverse = self.ranker.apply_diversity(ranked)
@@ -83,6 +91,28 @@ class MemoryRetrievalService:
         )
 
         return result
+
+    def _compute_profile_score(self, memory):
+        score = 0
+
+        if memory.category in ("project", "goal"):
+            score += 3
+        elif memory.category in ("skill", "person", "decision"):
+            score += 2
+        elif memory.category in ("preference", "outcome"):
+            score += 1
+
+        if memory.access_count >= 5:
+            score += 2
+        elif memory.access_count >= 2:
+            score += 1
+
+        if memory.importance >= 8:
+            score += 2
+        elif memory.importance >= 6:
+            score += 1
+
+        return min(score, 10)
 
     def retrieve_profile(self):
 

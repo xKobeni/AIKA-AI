@@ -4,12 +4,26 @@ from config.settings import settings
 
 class MemoryRanker:
 
+    INTENT_CATEGORY_MAP = {
+        MemoryIntent.GOAL: {"goal"},
+        MemoryIntent.PROJECT: {"project"},
+        MemoryIntent.PREFERENCE: {"preference"},
+        MemoryIntent.SKILL: {"skill"},
+        MemoryIntent.PERSON: {"person"},
+        MemoryIntent.DECISION: {"decision"},
+        MemoryIntent.OUTCOME: {"outcome"},
+        MemoryIntent.FACT: {"fact"},
+        MemoryIntent.GENERAL: set(),
+    }
+
     CATEGORY_WEIGHTS = {
         MemoryIntent.GOAL: {"goal": 3.0},
         MemoryIntent.PROJECT: {"project": 3.0},
         MemoryIntent.PREFERENCE: {"preference": 3.0},
         MemoryIntent.SKILL: {"skill": 2.5},
         MemoryIntent.PERSON: {"person": 2.5},
+        MemoryIntent.DECISION: {"decision": 2.5},
+        MemoryIntent.OUTCOME: {"outcome": 2.0},
         MemoryIntent.FACT: {"fact": 1.5},
         MemoryIntent.GENERAL: {},
     }
@@ -43,6 +57,8 @@ class MemoryRanker:
             MemoryIntent.PREFERENCE: "preference",
             MemoryIntent.SKILL: "skill",
             MemoryIntent.PERSON: "person",
+            MemoryIntent.DECISION: "decision",
+            MemoryIntent.OUTCOME: "outcome",
         }
 
         target = strict_intents.get(intent)

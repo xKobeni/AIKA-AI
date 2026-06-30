@@ -20,6 +20,26 @@ class FolderTool(BaseTool):
     def name(self):
         return "folder"
 
+    def get_schema(self):
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "path": {
+                    "type": "string",
+                    "required": False,
+                    "default": ".",
+                    "description": "Directory path to list"
+                },
+                "show_hidden": {
+                    "type": "boolean",
+                    "required": False,
+                    "default": False,
+                    "description": "Include hidden files (starting with .)"
+                }
+            }
+        }
+
     def execute(self, path=".", show_hidden=False):
 
         root = Path(settings.file_search_root_path).resolve()

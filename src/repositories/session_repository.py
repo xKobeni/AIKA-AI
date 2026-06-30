@@ -68,6 +68,22 @@ class SessionRepository:
                 .all()
             )
 
+    def get_recent_with_summaries(self, limit=5, exclude_session_id=None):
+        with db_session() as db:
+            query = (
+                db.query(Session)
+                .filter(Session.summary.isnot(None))
+                .filter(Session.summary != "")
+            )
+            if exclude_session_id:
+                query = query.filter(Session.id != exclude_session_id)
+            return (
+                query
+                .order_by(Session.last_active.desc())
+                .limit(limit)
+                .all()
+            )
+
     def delete(self, session_id):
         with db_session() as db:
             db.query(Session).filter(Session.id == session_id).delete()

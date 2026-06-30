@@ -40,6 +40,10 @@ class DecisionEngine:
                 "for ", "online", "google"
             ]
 
+            file_grep_followups = [
+                "in "
+            ]
+
             if any(
                 remaining.startswith(w)
                 or remaining == w
@@ -47,6 +51,16 @@ class DecisionEngine:
             ):
 
                 logger.debug("-> USE_TOOL (web_search)")
+
+                return Action.USE_TOOL
+
+            if any(
+                remaining.startswith(w)
+                or remaining == w
+                for w in file_grep_followups
+            ):
+
+                logger.debug("-> USE_TOOL (file_grep)")
 
                 return Action.USE_TOOL
 
@@ -177,6 +191,73 @@ class DecisionEngine:
             return Action.USE_TOOL
 
         # ============================
+        # TOOL: FILE MKDIR (before file_write)
+        # ============================
+
+        if any(text.startswith(p) for p in [
+            "mkdir ", "create folder ", "create directory "
+        ]):
+
+            logger.debug("-> USE_TOOL (file_mkdir)")
+
+            return Action.USE_TOOL
+
+        # ============================
+        # TOOL: FILE WRITE
+        # ============================
+
+        if any(text.startswith(p) for p in [
+            "create ", "write ", "make ",
+            "save ", "save as "
+        ]):
+
+            logger.debug("-> USE_TOOL (file_write)")
+
+            return Action.USE_TOOL
+
+        # ============================
+        # TOOL: FILE DELETE
+        # ============================
+
+        if text.startswith("delete ") or text.startswith("remove "):
+
+            logger.debug("-> USE_TOOL (file_delete)")
+
+            return Action.USE_TOOL
+
+        # ============================
+        # TOOL: FILE APPEND
+        # ============================
+
+        if text.startswith("append ") or text.startswith("add to "):
+
+            logger.debug("-> USE_TOOL (file_append)")
+
+            return Action.USE_TOOL
+
+        # ============================
+        # TOOL: FILE EDIT
+        # ============================
+
+        if text.startswith("edit ") or text.startswith("replace "):
+
+            logger.debug("-> USE_TOOL (file_edit)")
+
+            return Action.USE_TOOL
+
+        # ============================
+        # TOOL: FILE GREP
+        # ============================
+
+        if any(text.startswith(p) for p in [
+            "grep ", "search in ", "find in "
+        ]):
+
+            logger.debug("-> USE_TOOL (file_grep)")
+
+            return Action.USE_TOOL
+
+        # ============================
         # CONFIG COMMANDS
         # ============================
 
@@ -216,6 +297,31 @@ class DecisionEngine:
             logger.debug("-> CLEAR_CONVERSATION")
 
             return Action.CLEAR_CONVERSATION
+
+        # ============================
+        # QUICK CHAT DETECTION (skip LLM classifier)
+        # ============================
+
+        chat_keywords = [
+            "hello", "hi", "hey", "greetings", "good morning",
+            "good afternoon", "good evening", "how are you",
+            "what's up", "sup", "yo", "thanks", "thank you",
+            "bye", "goodbye", "see you", "nice", "cool",
+            "great", "awesome", "perfect", "yes", "no",
+            "ok", "okay", "sure", "sounds good", "got it",
+            "help", "what can you do", "who are you",
+            "tell me a joke", "how's it going"
+        ]
+
+        words = text.split()
+        is_short = len(words) <= 5
+        is_greeting = any(text.startswith(kw) or text == kw for kw in chat_keywords)
+        is_question = text.endswith("?") and len(words) <= 8
+        is_one_word = len(words) == 1
+
+        if is_short and (is_greeting or is_one_word):
+            logger.debug("-> CHAT (quick detection, skipped LLM classifier)")
+            return Action.CHAT
 
         # ============================
         # INTENT CLASSIFIER FALLBACK

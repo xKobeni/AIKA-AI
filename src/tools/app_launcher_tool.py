@@ -123,6 +123,24 @@ class AppLauncherTool(BaseTool):
 
         return None
 
+    def get_schema(self):
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "app_name": {
+                    "type": "string",
+                    "required": True,
+                    "description": "Name of the application to launch"
+                },
+                "path": {
+                    "type": "string",
+                    "required": False,
+                    "description": "Optional file/folder path to open with the app"
+                }
+            }
+        }
+
     def execute(self, app_name, path=None):
 
         if not settings.app_launcher_enabled:
@@ -157,9 +175,10 @@ class AppLauncherTool(BaseTool):
             fallback = self._fallback_search(cmd_name)
             if fallback:
                 try:
-                    if fallback.startswith("shell:AppsFolder") or "!" in fallback:
+                    if "!" in fallback:
                         subprocess.Popen(
-                            ["start", "", fallback], shell=True
+                            ["explorer.exe", f"shell:AppsFolder\\{fallback}"],
+                            shell=True
                         )
                     else:
                         cmd_list = [fallback]

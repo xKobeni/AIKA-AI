@@ -19,6 +19,19 @@ class FileSearchTool(BaseTool):
 
         return "file_search"
 
+    def get_schema(self):
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "query": {
+                    "type": "string",
+                    "required": True,
+                    "description": "Filename or partial name to search for"
+                }
+            }
+        }
+
     def execute(
         self,
         query,

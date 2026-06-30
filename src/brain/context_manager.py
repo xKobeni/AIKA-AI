@@ -20,15 +20,19 @@ class ContextManager:
         memory_repo,
         conversation_repo,
         embedding_service,
-        retrieval_service=None
+        retrieval_service=None,
+        session_repo=None
     ):
         self.memory_repo = memory_repo
         self.conversation_repo = conversation_repo
         self.embedding_service = embedding_service
         self.retrieval_service = retrieval_service
+        self.session_repo = session_repo
         self.max_context_tokens = settings.max_context_tokens
         self.retrieval_limit = settings.memory_retrieval_limit
         self.recent_count = settings.recent_conversations_count
+        self.summaries_count = settings.context_session_summaries_count
+        self.cross_session_count = settings.context_cross_session_conversations
 
     def build_context(
         self,
@@ -139,6 +143,73 @@ class ContextManager:
             )
 
         # -------------------------
+        # Session Summaries (cross-session)
+        # -------------------------
+
+        if self.session_repo and self.summaries_count > 0:
+
+            past_sessions = self.session_repo.get_recent_with_summaries(
+                limit=self.summaries_count,
+                exclude_session_id=session_id
+            )
+
+            if past_sessions:
+                summary_lines = []
+                for s in past_sessions:
+                    date_str = s.started_at.strftime("%Y-%m-%d")
+                    summary = s.summary.strip()
+                    if len(summary) > 150:
+                        summary = summary[:150] + "..."
+                    summary_lines.append(f"- {date_str}: {summary}")
+
+                sections.append(
+                    ("RECENT SESSIONS",
+                     "\n".join(summary_lines))
+                )
+
+        # -------------------------
+        # Cross-Session Conversations
+        # -------------------------
+
+        cross_session_context = ""
+
+        if (self.session_repo
+                and self.conversation_repo
+                and self.cross_session_count > 0
+                and session_id):
+
+            try:
+                query_embedding = (
+                    self.embedding_service
+                    .generate_embedding(user_message)
+                )
+
+                past_conversations = (
+                    self.conversation_repo
+                    .search_across_sessions(
+                        query_embedding,
+                        current_session_id=session_id,
+                        limit=self.cross_session_count
+                    )
+                )
+
+                if past_conversations:
+                    lines = []
+                    for c in past_conversations:
+                        role = "User" if c.role == "user" else "AIKA"
+                        content = c.content[:200]
+                        if len(c.content) > 200:
+                            content += "..."
+                        lines.append(f"[{role}]: {content}")
+
+                    cross_session_context = "\n".join(lines)
+
+            except Exception as e:
+                logger.debug(
+                    "Cross-session search failed: %s", e
+                )
+
+        # -------------------------
         # Token Budgeting
         # -------------------------
 
@@ -160,12 +231,14 @@ class ContextManager:
         t_total = time.time() - t0
 
         logger.debug(
-            "Context: %.2fs profile=%.2fs memories=%d",
-            t_total, t_profile, len(memories)
+            "Context: %.2fs profile=%.2fs memories=%d sessions=%d past_convs=%d",
+            t_total, t_profile, len(memories),
+            len(past_sessions) if self.session_repo else 0,
+            len(past_conversations) if cross_session_context else 0
         )
 
         # -------------------------
-        # Recent Conversations
+        # Recent Conversations (current session)
         # -------------------------
 
         if session_id:
@@ -186,5 +259,6 @@ class ContextManager:
 
         return {
             "memory_context": memory_context,
-            "conversation_context": conversation_context
+            "conversation_context": conversation_context,
+            "cross_session_context": cross_session_context
         }

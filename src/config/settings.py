@@ -17,6 +17,8 @@ class Settings:
 
         # LLM
         self.chat_model: str = os.getenv("CHAT_MODEL", "qwen2.5:3b")
+        self.fast_model: str = os.getenv("FAST_MODEL", "qwen2.5:3b")
+        self.smart_model: str = os.getenv("SMART_MODEL", "llama3:8b")
         self.embedding_model: str = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
         self.ollama_host: str = os.getenv("OLLAMA_HOST", "http://localhost:11434")
         self.llm_timeout: int = int(os.getenv("LLM_TIMEOUT", "30"))
@@ -36,22 +38,33 @@ class Settings:
         self.memory_category_boost_skill: float = float(os.getenv("MEMORY_BOOST_SKILL", "0.1"))
         self.memory_max_per_category: int = int(os.getenv("MEMORY_MAX_PER_CATEGORY", "2"))
         self.memory_validator_min_score: float = float(os.getenv("MEMORY_VALIDATOR_MIN_SCORE", "0.92"))
+        self.memory_dedup_threshold: float = float(os.getenv("MEMORY_DEDUP_THRESHOLD", "0.92"))
+        self.memory_extraction_max_per_message: int = int(os.getenv("MEMORY_EXTRACTION_MAX_PER_MESSAGE", "3"))
 
         # Context
-        self.max_context_tokens: int = int(os.getenv("MAX_CONTEXT_TOKENS", "2000"))
+        self.max_context_tokens: int = int(os.getenv("MAX_CONTEXT_TOKENS", "3000"))
         self.max_profile_per_category: int = int(os.getenv("MAX_PROFILE_PER_CATEGORY", "2"))
         self.recent_conversations_count: int = int(os.getenv("RECENT_CONVERSATIONS_COUNT", "10"))
+        self.context_session_summaries_count: int = int(os.getenv("CONTEXT_SESSION_SUMMARIES_COUNT", "5"))
+        self.context_cross_session_conversations: int = int(os.getenv("CONTEXT_CROSS_SESSION_CONVERSATIONS", "5"))
 
         # Conversation
         self.conversation_max_count: int = int(os.getenv("CONVERSATION_MAX_COUNT", "100"))
 
         # Tools / Web
         self.web_search_max_results: int = int(os.getenv("WEB_SEARCH_MAX_RESULTS", "5"))
+        self.tool_calling_enabled: bool = os.getenv("TOOL_CALLING_ENABLED", "true").lower() == "true"
+        self.tool_call_max_params_length: int = int(os.getenv("TOOL_CALL_MAX_PARAMS_LENGTH", "5000"))
+        self.tool_call_confirm_high_permission: bool = os.getenv("TOOL_CALL_CONFIRM_HIGH", "false").lower() == "true"
 
         # Planner & Research
         self.plan_web_search_max_results: int = int(os.getenv("PLAN_WEB_SEARCH_MAX_RESULTS", "5"))
         self.plan_top_sources_count: int = int(os.getenv("PLAN_TOP_SOURCES_COUNT", "3"))
         self.crawl_content_max_chars: int = int(os.getenv("CRAWL_CONTENT_MAX_CHARS", "2000"))
+
+        # Agent Loop
+        self.agent_max_iterations: int = int(os.getenv("AGENT_MAX_ITERATIONS", "5"))
+        self.agent_reflection_enabled: bool = os.getenv("AGENT_REFLECTION_ENABLED", "true").lower() == "true"
 
         # Input Validation
         self.max_input_length: int = int(os.getenv("MAX_INPUT_LENGTH", "10000"))
@@ -60,6 +73,10 @@ class Settings:
         # Tools
         self.file_search_root_path: str = os.getenv("FILE_SEARCH_ROOT_PATH", ".")
         self.file_read_encoding: str = os.getenv("FILE_READ_ENCODING", "utf-8")
+        self.file_write_enabled: bool = os.getenv("FILE_WRITE_ENABLED", "true").lower() == "true"
+        self.file_write_encoding: str = os.getenv("FILE_WRITE_ENCODING", "utf-8")
+        self.file_delete_enabled: bool = os.getenv("FILE_DELETE_ENABLED", "true").lower() == "true"
+        self.file_grep_max_results: int = int(os.getenv("FILE_GREP_MAX_RESULTS", "50"))
 
         # Paths
         self.execution_log_path: str = os.getenv("EXECUTION_LOG_PATH", "logs/execution.log")

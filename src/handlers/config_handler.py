@@ -71,9 +71,18 @@ class ConfigHandler:
                 return "Persona reloaded."
             return f"Persona file not found: {settings.persona_path}"
 
+        if text.startswith("!model"):
+
+            return self._switch_model(text)
+
+        if text.startswith("!log"):
+
+            return self._toggle_log(text)
+
         return (
             "Unknown config command.\n"
-            "Available: !settings [category], !set KEY=value, !save, !reload, !persona [reload]"
+            "Available: !settings [category], !set KEY=value, !save, !reload, "
+            "!persona [reload], !model [name], !log [level]"
         )
 
     def _list_all(self):
@@ -230,3 +239,81 @@ class ConfigHandler:
 
         except ValueError:
             return None
+
+    def _switch_model(self, text):
+
+        parts = text.split(maxsplit=2)
+
+        if len(parts) < 2 or not parts[1].strip():
+            return (
+                f"Models:\n"
+                f"  fast:  {settings.fast_model}\n"
+                f"  smart: {settings.smart_model}\n"
+                f"  chat:  {settings.chat_model}\n\n"
+                f"Usage:\n"
+                f"  !model              — show current models\n"
+                f"  !model <name>       — switch chat model\n"
+                f"  !model fast <name>  — switch fast model\n"
+                f"  !model smart <name> — switch smart model"
+            )
+
+        tier = parts[1].strip().lower()
+
+        if tier in ("fast", "smart") and len(parts) >= 3:
+            model_name = parts[2].strip()
+            if tier == "fast":
+                old = settings.fast_model
+                settings.fast_model = model_name
+            else:
+                old = settings.smart_model
+                settings.smart_model = model_name
+            logger.info("Model %s switched: %s -> %s", tier, old, model_name)
+            return (
+                f"Model {tier}: {old} -> {model_name}\n"
+                f"Next call will use the new model."
+            )
+
+        model_name = parts[1].strip()
+        old = settings.chat_model
+        settings.chat_model = model_name
+
+        logger.info("Model switched: %s -> %s", old, model_name)
+
+        return (
+            f"Model switched: {old} -> {model_name}\n"
+            f"Next LLM call will use the new model."
+        )
+
+    def _toggle_log(self, text):
+
+        parts = text.split(maxsplit=1)
+
+        if len(parts) < 2 or not parts[1].strip():
+            current = settings.log_level
+            return (
+                f"Current log level: {current}\n"
+                f"Usage: !log <level>\n"
+                f"Levels: debug, info, warning, error"
+            )
+
+        level = parts[1].strip().lower()
+
+        valid_levels = {"debug", "info", "warning", "error", "critical"}
+        if level not in valid_levels:
+            return (
+                f"Invalid log level: {level}\n"
+                f"Valid levels: {', '.join(sorted(valid_levels))}"
+            )
+
+        old = settings.log_level
+        settings.log_level = level.upper()
+
+        root_logger = logging.getLogger()
+        root_logger.setLevel(getattr(logging, settings.log_level))
+
+        for handler in root_logger.handlers:
+            handler.setLevel(getattr(logging, settings.log_level))
+
+        logger.info("Log level changed: %s -> %s", old, settings.log_level)
+
+        return f"Log level changed: {old} -> {settings.log_level}"

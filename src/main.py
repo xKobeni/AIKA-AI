@@ -23,6 +23,13 @@ while True:
             "\n  resume <id>         Continue a previous session"
             "\n  delete session <id> Remove a session"
             "\n  clear               Clear conversation history"
+            "\n  !model [name]       Switch LLM model (e.g. !model llama3:8b)"
+            "\n  !log [level]        Set log level (debug/info/warning/error)"
+            "\n  !settings [cat]     View settings"
+            "\n  !set KEY=value      Change a setting"
+            "\n  !save               Save settings to .env"
+            "\n  !reload             Reload settings from .env"
+            "\n  !persona            View/change persona"
             "\n  help, ?             Show this help"
             "\n  exit                Quit"
         )

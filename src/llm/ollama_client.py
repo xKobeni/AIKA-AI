@@ -9,6 +9,10 @@ class OllamaClient:
         self.host = settings.ollama_host
 
     def generate(self, prompt):
+        return self.generate_with_model(prompt, model=self.model)
+
+    def generate_with_model(self, prompt, model=None):
+        use_model = model or self.model
 
         separator = "\nUser:\n"
         if separator in prompt:
@@ -23,7 +27,7 @@ class OllamaClient:
             ]
 
         response = ollama.chat(
-            model=self.model,
+            model=use_model,
             messages=messages
         )
 

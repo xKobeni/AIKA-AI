@@ -179,6 +179,12 @@ class MemoryRepository:
                     category_boost = settings.memory_category_boost_goal
                 elif memory.category == "skill":
                     category_boost = settings.memory_category_boost_skill
+                elif memory.category == "person":
+                    category_boost = 0.15
+                elif memory.category == "decision":
+                    category_boost = 0.2
+                elif memory.category == "outcome":
+                    category_boost = 0.1
 
                 score = (
                     similarity * settings.memory_sim_weight +

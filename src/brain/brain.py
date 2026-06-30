@@ -6,6 +6,7 @@ from config.settings import settings
 from models.actions import Action
 from brain.decision_engine import DecisionEngine
 from brain.intent_classifier import LLMIntentClassifier
+from brain.llm_tool_router import LLMToolRouter
 from llm.ollama_client import OllamaClient
 
 from handlers.memory_handler import MemoryHandler
@@ -22,18 +23,30 @@ from handlers.config_handler import ConfigHandler
 
 from brain.context_manager import ContextManager
 from brain.router import Router
+from brain.agent_loop import AgentLoop
+from brain.model_router import ModelRouter
 
 from tools.tool_manager import ToolManager
 from tools.calculator_tool import CalculatorTool
 from tools.memory_search_tool import MemorySearchTool
 from tools.file_search_tool import FileSearchTool
 from tools.file_read_tool import FileReadTool
+from tools.file_write_tool import FileWriteTool
+from tools.file_delete_tool import FileDeleteTool
+from tools.file_append_tool import FileAppendTool
+from tools.file_edit_tool import FileEditTool
+from tools.file_grep_tool import FileGrepTool
+from tools.file_mkdir_tool import FileMkdirTool
 from tools.web_search_tool import WebSearchTool
 from tools.web_crawl_tool import WebCrawlTool
 from tools.shell_tool import ShellTool
 from tools.app_launcher_tool import AppLauncherTool
 from tools.folder_tool import FolderTool
 from tools.system_info_tool import SystemInfoTool
+from tools.git_tool import GitTool
+from tools.file_read_range_tool import FileReadRangeTool
+from tools.file_multi_edit_tool import FileMultiEditTool
+from tools.test_runner_tool import TestRunnerTool
 
 from llm.embedding_service import EmbeddingService
 
@@ -61,6 +74,9 @@ class AikaBrain:
         
         self.embedding_service = EmbeddingService()
 
+        # Model Router (auto-switch between fast/smart models)
+        self.model_router = ModelRouter()
+
         # Repositories
         self.memory_repo = MemoryRepository()
         self.conversation_repo = ConversationRepository()
@@ -85,7 +101,8 @@ class AikaBrain:
             self.memory_repo,
             self.conversation_repo,
             self.embedding_service,
-            retrieval_service=self.memory_retrieval_service
+            retrieval_service=self.memory_retrieval_service,
+            session_repo=self.session_repo
         )
         
         # Tool Manager
@@ -99,6 +116,31 @@ class AikaBrain:
         self.tool_manager.register_tool(
             FileReadTool()
         )
+
+        self.tool_manager.register_tool(
+            FileWriteTool()
+        )
+
+        self.tool_manager.register_tool(
+            FileDeleteTool()
+        )
+
+        self.tool_manager.register_tool(
+            FileAppendTool()
+        )
+
+        self.tool_manager.register_tool(
+            FileEditTool()
+        )
+
+        self.tool_manager.register_tool(
+            FileGrepTool()
+        )
+
+        self.tool_manager.register_tool(
+            FileMkdirTool()
+        )
+
         self.tool_manager.register_tool(
             WebSearchTool()
         )
@@ -128,6 +170,19 @@ class AikaBrain:
             SystemInfoTool()
         )
 
+        self.tool_manager.register_tool(
+            GitTool()
+        )
+        self.tool_manager.register_tool(
+            FileReadRangeTool()
+        )
+        self.tool_manager.register_tool(
+            FileMultiEditTool()
+        )
+        self.tool_manager.register_tool(
+            TestRunnerTool()
+        )
+
         self.tool_response_handler = ToolResponseHandler(
             self.llm
         )
@@ -147,10 +202,13 @@ class AikaBrain:
         # Intent Classifier
         self.intent_classifier = LLMIntentClassifier()
 
-        # Decision Engine
+        # Decision Engine (fallback)
         self.decision_engine = DecisionEngine(
             intent_classifier=self.intent_classifier
         )
+
+        # LLM Tool Router (new)
+        self.llm_tool_router = LLMToolRouter(self.tool_manager)
 
         # Handlers
         self.memory_handler = MemoryHandler(
@@ -171,7 +229,8 @@ class AikaBrain:
             tool_manager=self.tool_manager,
             session_id=self.current_session.id,
             embedding_service=self.embedding_service,
-            session_repo=self.session_repo
+            session_repo=self.session_repo,
+            model_router=self.model_router
         )
 
         # Config Handler
@@ -186,7 +245,18 @@ class AikaBrain:
             planner=self.planner,
             executor=self.executor,
             intent_classifier=self.intent_classifier,
-            config_handler=self.config_handler
+            config_handler=self.config_handler,
+            llm=self.llm
+        )
+
+        # Agent Loop
+        self.agent_loop = AgentLoop(
+            self.decision_engine,
+            self.router,
+            self.llm,
+            tool_manager=self.tool_manager,
+            llm_tool_router=self.llm_tool_router,
+            model_router=self.model_router
         )
 
         self._executor = ThreadPoolExecutor(
@@ -280,12 +350,8 @@ class AikaBrain:
 
         t0 = time.time()
 
-        # Decide action based on user message
-        decision = self.decision_engine.decide(
-            user_message
-        )
+        decision = self.decision_engine.decide(user_message)
 
-        # Handle session commands directly (bypasses router)
         if decision == Action.NEW_SESSION:
             response = self._handle_new_session()
             logger.debug("Route: NEW_SESSION (%.2fs)", time.time() - t0)
@@ -298,23 +364,54 @@ class AikaBrain:
         elif decision == Action.DELETE_SESSION:
             response = self._handle_delete_session(user_message)
             logger.debug("Route: DELETE_SESSION (%.2fs)", time.time() - t0)
+        elif decision == Action.CONFIGURE:
+            response = self.config_handler.handle(user_message)
+            logger.debug("Route: CONFIGURE (%.2fs)", time.time() - t0)
         else:
-            response = self.router.route(
-                decision,
-                user_message
+            user_embedding = None
+            try:
+                user_embedding = self.embedding_service.generate_embedding(user_message)
+            except Exception:
+                pass
+
+            user_conv = self.conversation_repo.create(
+                role="user",
+                content=user_message,
+                session_id=self.current_session.id,
+                embedding=user_embedding,
             )
+
+            response = self.agent_loop.run(user_message)
+
+            response_embedding = None
+            try:
+                response_embedding = self.embedding_service.generate_embedding(response)
+            except Exception:
+                pass
+
+            self.conversation_repo.create(
+                role="assistant",
+                content=response,
+                session_id=self.current_session.id,
+                embedding=response_embedding,
+                model_used=settings.chat_model,
+            )
+
+            self.session_repo.increment_message_count(self.current_session.id, 2)
+            self.session_repo.update_last_active(self.current_session.id)
+            self.conversation_repo.trim()
+
+            logger.debug("Route: AGENT_LOOP (%.2fs)", time.time() - t0)
 
         total = time.time() - t0
 
         logger.debug("%s", "-" * 45)
         logger.debug("Decision: %s | Total: %.2fs", decision.value, total)
 
-        # Background memory extraction (non-blocking)
-        source_conv_id = getattr(self.chat_handler, '_last_user_conv_id', None)
         self._executor.submit(
             self.chat_handler.memory_extractor.extract_memory,
             user_message,
-            source_conversation_id=source_conv_id
+            source_conversation_id=getattr(self, '_last_user_conv_id', None)
         )
         logger.debug("Memory extraction -> background")
 

@@ -20,6 +20,29 @@ class ShellTool(BaseTool):
     def name(self):
         return "shell"
 
+    def get_schema(self):
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "command": {
+                    "type": "string",
+                    "required": True,
+                    "description": "Shell command to execute"
+                },
+                "timeout": {
+                    "type": "integer",
+                    "required": False,
+                    "description": "Timeout in seconds (default from settings)"
+                },
+                "workdir": {
+                    "type": "string",
+                    "required": False,
+                    "description": "Working directory for the command"
+                }
+            }
+        }
+
     def execute(self, command, timeout=None, workdir=None):
 
         if not settings.shell_enabled:
