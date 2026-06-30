@@ -32,7 +32,8 @@ class ContextManager:
 
     def build_context(
         self,
-        user_message
+        user_message,
+        session_id=None
     ):
 
         t0 = time.time()
@@ -167,10 +168,16 @@ class ContextManager:
         # Recent Conversations
         # -------------------------
 
-        conversations = (
-            self.conversation_repo
-            .get_recent(self.recent_count)
-        )
+        if session_id:
+            conversations = (
+                self.conversation_repo
+                .get_by_session(session_id, self.recent_count)
+            )
+        else:
+            conversations = (
+                self.conversation_repo
+                .get_recent(self.recent_count)
+            )
 
         conversation_context = "\n".join([
             f"{c.role}: {c.content}"

@@ -9,8 +9,8 @@ from config.settings import settings
 
 class MemoryRepository:
 
-    # Create a new memory entry
-    def create(self, memory_type, content, embedding, category="fact", importance=5, profile_score=0):
+    def create(self, memory_type, content, embedding, category="fact",
+               importance=5, profile_score=0, source_conversation_id=None):
 
         with db_session() as db:
 
@@ -20,7 +20,8 @@ class MemoryRepository:
                 embedding=embedding,
                 category=category,
                 importance=importance,
-                profile_score=profile_score
+                profile_score=profile_score,
+                source_conversation_id=source_conversation_id
             )
 
             db.add(memory)

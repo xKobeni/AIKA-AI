@@ -115,7 +115,10 @@ class Router:
 
         if action == Action.CHAT:
 
-            result = self.chat_handler.chat(user_message)
+            result = self.chat_handler.chat(
+                user_message,
+                intent=action.value
+            )
             logger.debug("Route: CHAT (%.2fs)", time.time() - t0)
             return result
             

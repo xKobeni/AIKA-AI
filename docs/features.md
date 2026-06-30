@@ -55,13 +55,57 @@ AIKA builds a user profile by scoring memories against categories (project, goal
 All chat is processed through a local Ollama model. Context is built from:
 
 - User profile (relevant memories by category)
-- Recent conversation history
+- Recent conversation history (scoped to current session)
 - Web search results (when automatically triggered)
 - Current time and date
+
+### Session-Scoped Context
+
+Conversations are grouped into **sessions**. The AI only sees messages from the current session — previous sessions are not included in context, keeping the focus on the active conversation.
 
 ### Auto-Trimming
 
 Conversations are trimmed when they exceed `CONVERSATION_MAX_COUNT` (default 100). Oldest entries are deleted first.
+
+---
+
+## Session Management
+
+Conversations are organized into sessions, each representing a fresh conversation thread.
+
+### How Sessions Work
+
+- A session is created automatically when AIKA starts
+- All messages during a session are tagged with the same `session_id`
+- Context is scoped to the current session — previous sessions are not visible
+- When a session ends, its conversation is automatically summarized and stored
+
+### Commands
+
+| Command | Description |
+|---|---|
+| `new conversation` | End current session and start a new one |
+| `new session` | Same as above |
+| `start fresh` | Same as above |
+| `reset session` | Same as above |
+
+### Auto-Generated Summaries
+
+When a new session is started, the previous session's conversation is automatically summarized (2-3 sentences) by the LLM in the background. Summaries are stored in the `sessions` table for future use (e.g., listing past sessions).
+
+### Metadata Per Message
+
+Every message stores additional metadata:
+
+| Field | Description |
+|---|---|
+| `session_id` | Links to the parent session |
+| `embedding` | Vector embedding for semantic search |
+| `intent` | Action classification (chat, use_tool, etc.) |
+| `tool_used` | Which tool was invoked (if any) |
+| `model_used` | LLM that generated the response |
+| `response_time_ms` | Response latency |
+| `token_count` | Estimated response tokens |
 
 ---
 

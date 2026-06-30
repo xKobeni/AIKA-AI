@@ -200,6 +200,19 @@ class PlanExecutor:
 
         if not content:
 
+            sources = context.get("sources")
+
+            if sources:
+                lines = []
+                for s in sources:
+                    title = s.get("title", "")
+                    body = s.get("body", s.get("snippet", ""))
+                    url = s.get("url", "")
+                    lines.append(f"{title}\n{body}\n{url}")
+                content = "\n\n".join(lines)
+
+        if not content:
+
             return "No content found to summarize."
 
         prompt = f"""

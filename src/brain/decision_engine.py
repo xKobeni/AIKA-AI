@@ -165,6 +165,21 @@ class DecisionEngine:
             return Action.CONFIGURE
 
         # ============================
+        # NEW SESSION
+        # ============================
+
+        if text in (
+            "new conversation",
+            "new session",
+            "start fresh",
+            "reset session"
+        ):
+
+            logger.debug("-> NEW_SESSION")
+
+            return Action.NEW_SESSION
+
+        # ============================
         # CLEAR CONVERSATION
         # ============================
 

@@ -15,7 +15,10 @@ class ChatHandler:
         llm,
         memory_extractor,
         context_manager,
-        tool_manager=None
+        tool_manager=None,
+        session_id=None,
+        embedding_service=None,
+        session_repo=None
     ):
 
         self.conversation_repo = conversation_repo
@@ -23,6 +26,9 @@ class ChatHandler:
         self.memory_extractor = memory_extractor
         self.context_manager = context_manager
         self.tool_manager = tool_manager
+        self.session_id = session_id
+        self.embedding_service = embedding_service
+        self.session_repo = session_repo
         self.log_level = settings.log_level
 
     def _should_search_web(self, user_message):
@@ -38,6 +44,13 @@ class ChatHandler:
             "good morning", "good afternoon", "good evening",
             "what's up", "sup", "yo"
         }:
+            return False
+
+        # Skip self-referential questions about AIKA
+        if any(p in text for p in [
+            "what are you", "who are you", "what is your name",
+            "tell me about yourself", "what do you do",
+        ]):
             return False
 
         # Skip for memory/personal queries
@@ -67,7 +80,7 @@ class ChatHandler:
 
         return False
 
-    def chat(self, user_message):
+    def chat(self, user_message, intent=None, tool_name=None):
 
         t_chat = time.time()
 
@@ -81,12 +94,31 @@ class ChatHandler:
             )
 
         # -------------------------
+        # Generate Embeddings for User Message
+        # -------------------------
+        user_embedding = None
+        if self.embedding_service:
+            try:
+                user_embedding = (
+                    self.embedding_service
+                    .generate_embedding(user_message)
+                )
+            except Exception:
+                logger.debug("Failed to generate user embedding", exc_info=True)
+
+        # -------------------------
         # Save User Message
         # -------------------------
-        self.conversation_repo.create(
+        user_conversation = self.conversation_repo.create(
             role="user",
-            content=user_message
+            content=user_message,
+            session_id=self.session_id,
+            embedding=user_embedding,
+            intent=intent,
+            tool_used=tool_name
         )
+
+        self._last_user_conv_id = user_conversation.id
 
         # -------------------------
         # Build Context
@@ -94,7 +126,10 @@ class ChatHandler:
         t0 = time.time()
         context = (
             self.context_manager
-            .build_context(user_message)
+            .build_context(
+                user_message,
+                session_id=self.session_id
+            )
         )
         t_context = time.time() - t0
 
@@ -188,7 +223,9 @@ Known Memories:
 {web_results_block}
 
 User:
-{user_message}"""
+{user_message}
+
+Speak with warmth and emotion. Be conversational — use casual language, express feelings, and let your personality show."""
 
         # -------------------------
         # Generate Response
@@ -200,12 +237,47 @@ User:
         t_llm = time.time() - t0
 
         # -------------------------
+        # Metrics
+        # -------------------------
+        full_prompt = prompt.strip()
+        prompt_tokens = max(1, len(full_prompt.split()) * 3 // 2)
+        response_tokens = max(1, len(response.split()) * 3 // 2)
+        response_time_ms = int((time.time() - t_chat) * 1000)
+
+        # -------------------------
+        # Generate Embedding for Response
+        # -------------------------
+        response_embedding = None
+        if self.embedding_service:
+            try:
+                response_embedding = (
+                    self.embedding_service
+                    .generate_embedding(response)
+                )
+            except Exception:
+                logger.debug("Failed to generate response embedding", exc_info=True)
+
+        # -------------------------
         # Save Assistant Response
         # -------------------------
         self.conversation_repo.create(
             role="assistant",
-            content=response
+            content=response,
+            session_id=self.session_id,
+            embedding=response_embedding,
+            intent=intent,
+            tool_used=tool_name,
+            model_used=settings.chat_model,
+            response_time_ms=response_time_ms,
+            token_count=response_tokens
         )
+
+        # -------------------------
+        # Update Session Tracking
+        # -------------------------
+        if self.session_repo and self.session_id:
+            self.session_repo.increment_message_count(self.session_id, 2)
+            self.session_repo.update_last_active(self.session_id)
 
         # -------------------------
         # Trim old conversations
@@ -215,8 +287,6 @@ User:
         # -------------------------
         # Debug Summary
         # -------------------------
-        full_prompt = prompt.strip()
-        prompt_tokens = max(1, len(full_prompt.split()) * 3 // 2)
         t_total = time.time() - t_chat
         web_status = (
             f"{t_web:.2f}s ({n_results} results)"
@@ -224,8 +294,8 @@ User:
             else "skipped"
         )
         logger.debug(
-            "Context: %.2fs | Web: %s | LLM: %.2fs | Prompt tokens: ~%d",
-            t_context, web_status, t_llm, prompt_tokens
+            "Context: %.2fs | Web: %s | LLM: %.2fs | Prompt tokens: ~%d | Response tokens: ~%d | Total: %.2fs",
+            t_context, web_status, t_llm, prompt_tokens, response_tokens, t_total
         )
 
         return response

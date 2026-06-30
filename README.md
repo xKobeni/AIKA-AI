@@ -8,6 +8,7 @@ AIKA is a living desktop companion that observes, remembers, and grows with its 
 
 - **Local LLM** — Chat via Ollama (Qwen, Llama, Mistral, etc.)
 - **Long-term Memory** — Automatic extraction, semantic search with recency/importance/profile scoring, user profile building
+- **Session Management** — Session-scoped conversations, "new conversation" command, auto-generated session summaries
 - **Tool Use** — Calculator (safe AST), file search/read (sandboxed), web search (DuckDuckGo), web crawling
 - **OS Tools** — Shell execution (with safety controls), app launcher, folder listing, system information
 - **Planning** — Decomposes complex requests into executable step-by-step plans

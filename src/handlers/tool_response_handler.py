@@ -30,10 +30,9 @@ Tool Result:
 {tool_result}
 
 RULES:
-- Use ONLY the Tool Result to answer. Present data exactly as returned.
-- Do NOT interpret, summarize, infer, or add details beyond what is in the Tool Result.
-- If the result is a number, list, or structured data, present it verbatim.
+- Base your answer on the Tool Result — it's your source of truth for facts.
+- Present the data naturally with warmth and conversational framing.
 - Never invent information. If the result is empty, say so honestly.
-- Respond naturally and concisely."""
+- Respond concisely but with genuine emotion and personality."""
 
         return self.llm.generate(prompt)

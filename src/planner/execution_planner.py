@@ -134,6 +134,30 @@ class ExecutionPlanner:
                     ]
                 )
 
+        # Workflow: summarize/analyze a general topic via web search
+        if needs_summary and not has_file_search and not has_read and not has_memory and not self._looks_like_file(query):
+
+            return Plan(
+                goal="summarize",
+                steps=[
+                    PlanStep(
+                        1,
+                        "web_search",
+                        {
+                            "query": query,
+                            "max_results": self.web_search_max_results
+                        },
+                        "Search the web"
+                    ),
+                    PlanStep(
+                        2,
+                        "summarize",
+                        {},
+                        "Summarize findings"
+                    )
+                ]
+            )
+
         # Workflow: summarize/analyze with file search
         if needs_summary and (has_file_search or not has_memory):
 
@@ -239,6 +263,23 @@ class ExecutionPlanner:
                 )
 
         return None
+
+    FILE_EXTENSIONS = [
+        ".py", ".md", ".txt", ".json", ".yaml", ".yml",
+        ".toml", ".cfg", ".ini", ".csv", ".xml", ".html",
+        ".css", ".js", ".ts", ".jsx", ".tsx", ".vue",
+        ".c", ".cpp", ".h", ".hpp", ".java", ".rs", ".go",
+        ".rb", ".php", ".sh", ".bat", ".ps1", ".sql",
+        ".env", ".gitignore", ".dockerfile", ".lock",
+    ]
+
+    def _looks_like_file(self, query):
+        for ext in self.FILE_EXTENSIONS:
+            if ext in query:
+                return True
+        if "/" in query or "\\" in query:
+            return True
+        return False
 
     def _extract_search_query(
         self,

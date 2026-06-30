@@ -12,6 +12,7 @@ from handlers.chat_handler import ChatHandler
 
 from repositories.memory_repository import MemoryRepository
 from repositories.conversation_repository import ConversationRepository
+from repositories.session_repository import SessionRepository
 
 from handlers.memory_extractor import MemoryExtractor
 from handlers.tool_response_handler import ToolResponseHandler
@@ -62,6 +63,7 @@ class AikaBrain:
         # Repositories
         self.memory_repo = MemoryRepository()
         self.conversation_repo = ConversationRepository()
+        self.session_repo = SessionRepository()
         
         # Memory Extraction
         self.memory_extractor = MemoryExtractor(
@@ -156,13 +158,19 @@ class AikaBrain:
             retrieval_service=self.memory_retrieval_service
         )
 
+        # Session
+        self.current_session = self.session_repo.create()
+
         # Chat Handler
         self.chat_handler = ChatHandler(
             self.conversation_repo,
             self.llm,
             self.memory_extractor,
             self.context_manager,
-            tool_manager=self.tool_manager
+            tool_manager=self.tool_manager,
+            session_id=self.current_session.id,
+            embedding_service=self.embedding_service,
+            session_repo=self.session_repo
         )
 
         # Config Handler
@@ -185,6 +193,31 @@ class AikaBrain:
             thread_name_prefix="aika"
         )
 
+    def _generate_session_summary(self, session_id):
+        conversations = self.conversation_repo.get_by_session(
+            session_id, limit=50
+        )
+        if not conversations:
+            return
+        transcript = "\n".join(
+            f"{c.role}: {c.content}" for c in conversations
+        )
+        prompt = (
+            f"Summarize this conversation in 2-3 sentences:\n\n"
+            f"{transcript}\n\nSummary:"
+        )
+        summary = self.llm.generate(prompt)
+        self.session_repo.update_summary(session_id, summary)
+
+    def _handle_new_session(self):
+        old_session_id = self.current_session.id
+        self._executor.submit(
+            self._generate_session_summary, old_session_id
+        )
+        self.current_session = self.session_repo.create()
+        self.chat_handler.session_id = self.current_session.id
+        return "New conversation started."
+
     def process(self, user_message):
 
         t0 = time.time()
@@ -194,11 +227,15 @@ class AikaBrain:
             user_message
         )
 
-        # Route to appropriate handler
-        response = self.router.route(
-            decision,
-            user_message
-        )
+        # Handle new session directly (bypasses router)
+        if decision == Action.NEW_SESSION:
+            response = self._handle_new_session()
+            logger.debug("Route: NEW_SESSION (%.2fs)", time.time() - t0)
+        else:
+            response = self.router.route(
+                decision,
+                user_message
+            )
 
         total = time.time() - t0
 
@@ -206,9 +243,11 @@ class AikaBrain:
         logger.debug("Decision: %s | Total: %.2fs", decision.value, total)
 
         # Background memory extraction (non-blocking)
+        source_conv_id = getattr(self.chat_handler, '_last_user_conv_id', None)
         self._executor.submit(
             self.chat_handler.memory_extractor.extract_memory,
-            user_message
+            user_message,
+            source_conversation_id=source_conv_id
         )
         logger.debug("Memory extraction -> background")
 

@@ -138,6 +138,26 @@ AIKA > Searches for "config" → reads found file → summarizes
 
 ---
 
+## Session Management
+
+### Start a new conversation
+
+```
+You > new conversation
+AIKA > New conversation started.
+
+You > what was I building again?
+AIKA > I'm not sure — this is a fresh session. Tell me about it!
+```
+
+The previous session is automatically summarized in the background and stored in the database.
+
+### Trigger phrases
+
+Any of these work: `new conversation`, `new session`, `start fresh`, `reset session`
+
+---
+
 ## OS Commands
 
 ### Run shell commands

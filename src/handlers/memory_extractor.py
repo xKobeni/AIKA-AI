@@ -45,7 +45,7 @@ class MemoryExtractor:
         self.embedding_service = embedding_service
         self.log_level = settings.log_level
 
-    def extract_memory(self, user_message):
+    def extract_memory(self, user_message, source_conversation_id=None):
 
         text = f" {user_message.lower().strip()} "
 
@@ -81,7 +81,8 @@ class MemoryExtractor:
                         content=full_content,
                         embedding=embedding,
                         category=category,
-                        importance=importance
+                        importance=importance,
+                        source_conversation_id=source_conversation_id
                     )
 
                     return {

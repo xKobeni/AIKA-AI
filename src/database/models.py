@@ -66,6 +66,11 @@ class Memory(Base):
         Integer,
         default=0
     )
+
+    source_conversation_id: Mapped[int] = mapped_column(
+        Integer,
+        nullable=True
+    )
     
 # -----------------------------------------------------------------------------
 
@@ -79,6 +84,12 @@ class Conversation(Base):
         primary_key=True
     )
 
+    session_id: Mapped[str] = mapped_column(
+        String(50),
+        index=True,
+        nullable=True
+    )
+
     role: Mapped[str] = mapped_column(
         String(20)
     )
@@ -87,7 +98,69 @@ class Conversation(Base):
         Text
     )
 
+    tool_used: Mapped[str] = mapped_column(
+        String(50),
+        nullable=True
+    )
+
+    embedding: Mapped[list] = mapped_column(
+        Vector(768),
+        nullable=True
+    )
+
+    intent: Mapped[str] = mapped_column(
+        String(50),
+        nullable=True
+    )
+
+    model_used: Mapped[str] = mapped_column(
+        String(100),
+        nullable=True
+    )
+
+    response_time_ms: Mapped[int] = mapped_column(
+        Integer,
+        nullable=True
+    )
+
+    token_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         default=lambda: datetime.now(timezone.utc)
+    )
+
+# -----------------------------------------------------------------------------
+
+
+class Session(Base):
+
+    __tablename__ = "sessions"
+
+    id: Mapped[str] = mapped_column(
+        String(50),
+        primary_key=True
+    )
+
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc)
+    )
+
+    last_active: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc)
+    )
+
+    message_count: Mapped[int] = mapped_column(
+        Integer,
+        default=0
+    )
+
+    summary: Mapped[str] = mapped_column(
+        Text,
+        nullable=True
     )
