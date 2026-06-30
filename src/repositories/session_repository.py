@@ -52,6 +52,22 @@ class SessionRepository:
                 .all()
             )
 
+    def find_by_partial_id(self, partial):
+        with db_session() as db:
+            return (
+                db.query(Session)
+                .filter(Session.id.startswith(partial))
+                .all()
+            )
+
+    def get_all_sessions(self):
+        with db_session() as db:
+            return (
+                db.query(Session)
+                .order_by(Session.last_active.desc())
+                .all()
+            )
+
     def delete(self, session_id):
         with db_session() as db:
             db.query(Session).filter(Session.id == session_id).delete()

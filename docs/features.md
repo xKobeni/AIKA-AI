@@ -85,13 +85,18 @@ Conversations are organized into sessions, each representing a fresh conversatio
 | Command | Description |
 |---|---|
 | `new conversation` | End current session and start a new one |
-| `new session` | Same as above |
-| `start fresh` | Same as above |
-| `reset session` | Same as above |
+| `list sessions` | Show all sessions with summary, date, and message count |
+| `resume <id>` | Switch to a previous session (supports partial ID match) |
+| `delete session <id>` | Remove a session from the database (conversations preserved) |
+| `help` | Show all available commands |
+
+### Listing, Resuming, and Deleting Sessions
+
+The prompt displays the current session ID: `You [a3f2] >`. Commands use partial ID matching — `resume a3f2` matches any session starting with `a3f2`. If multiple sessions match, all candidates are shown. Deleting the current session automatically creates a new one.
 
 ### Auto-Generated Summaries
 
-When a new session is started, the previous session's conversation is automatically summarized (2-3 sentences) by the LLM in the background. Summaries are stored in the `sessions` table for future use (e.g., listing past sessions).
+When a new session is started, the previous session's conversation is automatically summarized (2-3 sentences) by the LLM in the background. Summaries are stored in the `sessions` table and shown when listing or resuming sessions.
 
 ### Metadata Per Message
 
@@ -185,7 +190,12 @@ Runs arbitrary shell commands via `subprocess`.
 
 ### App Launcher
 
-Opens applications on the host system.
+Opens applications on the host system. In addition to the hardcoded aliases below, AIKA can find *any* installed application by scanning the Windows Registry (`App Paths` keys), Start Menu shortcuts (via `pywin32`), and Microsoft Store / UWP apps (via `Get-StartApps`). Results are cached for 5 minutes with optional file persistence.
+
+| Setting | Default | Description |
+|---|---|---|
+| `APP_LAUNCHER_ENABLED` | `true` | Enable the app launcher tool |
+| `APP_LAUNCHER_UWP_ENABLED` | `true` | Enable UWP/Microsoft Store app scanning (adds ~2s to first scan) |
 
 | Alias | App |
 |---|---|

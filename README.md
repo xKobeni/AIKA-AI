@@ -8,9 +8,9 @@ AIKA is a living desktop companion that observes, remembers, and grows with its 
 
 - **Local LLM** — Chat via Ollama (Qwen, Llama, Mistral, etc.)
 - **Long-term Memory** — Automatic extraction, semantic search with recency/importance/profile scoring, user profile building
-- **Session Management** — Session-scoped conversations, "new conversation" command, auto-generated session summaries
+- **Session Management** — Sessions with scoped context, new/list/resume/delete commands, auto-generated summaries
 - **Tool Use** — Calculator (safe AST), file search/read (sandboxed), web search (DuckDuckGo), web crawling
-- **OS Tools** — Shell execution (with safety controls), app launcher, folder listing, system information
+- **OS Tools** — Shell execution (with safety controls), app launcher (with system-wide Registry + Start Menu + UWP scanning), folder listing, system information
 - **Planning** — Decomposes complex requests into executable step-by-step plans
 - **Research** — Multi-source web research with relevance ranking and structured report generation
 - **Configuration System** — View and change all settings at runtime (`!settings`, `!set`, `!save`, `!reload`)
@@ -42,4 +42,4 @@ python src/main.py
 - **LLM:** Ollama (local inference)
 - **Database:** PostgreSQL + pgvector
 - **Language:** Python 3.10+
-- **Key Libraries:** SQLAlchemy, crawl4ai, httpx, psutil
+- **Key Libraries:** SQLAlchemy, crawl4ai, httpx, psutil, pywin32

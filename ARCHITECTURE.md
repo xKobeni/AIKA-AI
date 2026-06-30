@@ -67,7 +67,8 @@ AIKA AI/
 │   │   ├── file_read_tool.py                # File content reading
 │   │   ├── web_search_tool.py               # DuckDuckGo search
 │   │   ├── web_crawl_tool.py                # Web page content crawl
-│   │   └── memory_search_tool.py            # Memory retrieval tool
+│   │   ├── memory_search_tool.py            # Memory retrieval tool
+│   │   └── app_registry.py                  # System-wide app scanning (Registry + Start Menu + UWP)
 │   ├── planner/
 │   │   ├── __init__.py
 │   │   ├── execution_planner.py             # Breaks tasks into steps
@@ -140,8 +141,8 @@ Router.route()
 ## Core Components
 
 ### Brain (`src/brain/`)
-- **`AikaBrain`** — Top-level orchestrator. Initializes all services, repositories, handlers, and tools. Exposes `process(user_message)` which runs the entire pipeline. Manages session lifecycle (create, new session, summary generation).
-- **`DecisionEngine`** — Uses the intent classifier to decide whether the user wants to chat, retrieve memories, use a tool, execute a plan, or start a new session.
+- **`AikaBrain`** — Top-level orchestrator. Initializes all services, repositories, handlers, and tools. Exposes `process(user_message)` which runs the entire pipeline. Manages session lifecycle (create, list, resume, delete, summary generation).
+- **`DecisionEngine`** — Uses the intent classifier to decide whether the user wants to chat, retrieve memories, use a tool, execute a plan, or manage sessions (new, list, resume, delete).
 - **`Router`** — Routes the decision to the appropriate handler.
 - **`ContextManager`** — Builds context windows by merging conversation history (scoped to current session), relevant memories, and profile data.
 - **`IntentClassifier`** — Uses the LLM to classify user intent from a set of known intents.
@@ -164,7 +165,8 @@ Router.route()
 ### Tools (`src/tools/`)
 - **`ToolManager`** — Registry of all available tools. Looks up and executes tools by name.
 - **`base_tool`** — Abstract base class with `execute(input) → result` interface.
-- **Built-in tools:** Calculator, File Search, File Read, Web Search, Web Crawl, Memory Search.
+- **Built-in tools:** Calculator, File Search, File Read, Web Search, Web Crawl, Memory Search, Shell, App Launcher, Folder, System Info.
+- **`AppRegistry`** — System-wide application scanner (Registry `App Paths`, Start Menu `.lnk` parsing via `pywin32`, UWP via `Get-StartApps`). Used as fallback by the app launcher tool.
 
 ### Planner (`src/planner/`)
 - **`ExecutionPlanner`** — Decomposes complex user requests into a sequence of steps.
@@ -236,4 +238,5 @@ Router.route()
 | **SQLAlchemy** | ORM and query building |
 | **crawl4ai** | Web page content extraction |
 | **ddgs** | DuckDuckGo search API |
+| **pywin32** | Windows COM/Registry access (.lnk parsing) |
 | **pytest** | Testing |

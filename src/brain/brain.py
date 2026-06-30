@@ -3,6 +3,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 
 from config.settings import settings
+from models.actions import Action
 from brain.decision_engine import DecisionEngine
 from brain.intent_classifier import LLMIntentClassifier
 from llm.ollama_client import OllamaClient
@@ -218,6 +219,63 @@ class AikaBrain:
         self.chat_handler.session_id = self.current_session.id
         return "New conversation started."
 
+    def _resolve_session_id(self, partial):
+        matches = self.session_repo.find_by_partial_id(partial)
+        if len(matches) == 0:
+            return None, f"No session matches '{partial}'."
+        if len(matches) > 1:
+            ids = ", ".join(s.id for s in matches)
+            return None, f"Multiple sessions match '{partial}': {ids}"
+        return matches[0], None
+
+    def _handle_list_sessions(self):
+        sessions = self.session_repo.get_all_sessions()
+        if not sessions:
+            return "No sessions found."
+        lines = ["**Sessions:**"]
+        for s in sessions:
+            marker = " *" if s.id == self.current_session.id else "  "
+            started = s.started_at.strftime("%Y-%m-%d %H:%M")
+            summary = (
+                (s.summary[:60] + "...")
+                if s.summary and len(s.summary) > 60
+                else (s.summary or "No summary yet")
+            )
+            lines.append(
+                f"{marker} `{s.id}`  {started}  "
+                f"{s.message_count} msgs  _{summary}_"
+            )
+        return "\n".join(lines)
+
+    def _handle_resume_session(self, user_message):
+        partial = user_message[len("resume "):].strip()
+        session, err = self._resolve_session_id(partial)
+        if err:
+            return err
+        self.current_session = session
+        self.chat_handler.session_id = session.id
+        summary = session.summary or "No summary available for this session."
+        return (
+            f"Resumed session `{session.id}`.\n"
+            f"**Session summary:** {summary}"
+        )
+
+    def _handle_delete_session(self, user_message):
+        partial = user_message[len("delete session "):].strip()
+        session, err = self._resolve_session_id(partial)
+        if err:
+            return err
+        was_current = session.id == self.current_session.id
+        self.session_repo.delete(session.id)
+        if was_current:
+            self.current_session = self.session_repo.create()
+            self.chat_handler.session_id = self.current_session.id
+            return (
+                f"Deleted current session `{session.id}`. "
+                f"New session `{self.current_session.id}` started."
+            )
+        return f"Deleted session `{session.id}`."
+
     def process(self, user_message):
 
         t0 = time.time()
@@ -227,10 +285,19 @@ class AikaBrain:
             user_message
         )
 
-        # Handle new session directly (bypasses router)
+        # Handle session commands directly (bypasses router)
         if decision == Action.NEW_SESSION:
             response = self._handle_new_session()
             logger.debug("Route: NEW_SESSION (%.2fs)", time.time() - t0)
+        elif decision == Action.LIST_SESSIONS:
+            response = self._handle_list_sessions()
+            logger.debug("Route: LIST_SESSIONS (%.2fs)", time.time() - t0)
+        elif decision == Action.RESUME_SESSION:
+            response = self._handle_resume_session(user_message)
+            logger.debug("Route: RESUME_SESSION (%.2fs)", time.time() - t0)
+        elif decision == Action.DELETE_SESSION:
+            response = self._handle_delete_session(user_message)
+            logger.debug("Route: DELETE_SESSION (%.2fs)", time.time() - t0)
         else:
             response = self.router.route(
                 decision,

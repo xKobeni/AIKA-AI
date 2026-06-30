@@ -61,6 +61,28 @@ class DecisionEngine:
             return Action.DELETE_MEMORY
 
         # ============================
+        # SESSION COMMANDS (before generic list/show)
+        # ============================
+
+        if text in ("list sessions", "sessions", "show sessions"):
+
+            logger.debug("-> LIST_SESSIONS")
+
+            return Action.LIST_SESSIONS
+
+        if text.startswith("resume "):
+
+            logger.debug("-> RESUME_SESSION")
+
+            return Action.RESUME_SESSION
+
+        if text.startswith("delete session "):
+
+            logger.debug("-> DELETE_SESSION")
+
+            return Action.DELETE_SESSION
+
+        # ============================
         # OS / SHELL COMMANDS
         # ============================
 

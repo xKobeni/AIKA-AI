@@ -140,21 +140,52 @@ AIKA > Searches for "config" → reads found file → summarizes
 
 ## Session Management
 
+The prompt shows the current session's short ID: `You [a3f2] >`. All session commands support partial ID matching — `resume a3f` matches any session starting with `a3f`.
+
 ### Start a new conversation
 
 ```
-You > new conversation
+You [a3f2] > new conversation
 AIKA > New conversation started.
 
-You > what was I building again?
+You [b7d1] > what was I building again?
 AIKA > I'm not sure — this is a fresh session. Tell me about it!
 ```
 
 The previous session is automatically summarized in the background and stored in the database.
 
-### Trigger phrases
+### List all sessions
 
-Any of these work: `new conversation`, `new session`, `start fresh`, `reset session`
+```
+You [b7d1] > list sessions
+AIKA > **Sessions:**
+  * `b7d1c0f3a2e5`  2026-06-30 14:02  0 msgs  _No summary yet_
+     `a3f28b1c4d6e`  2026-06-30 13:45  12 msgs  _User asked about memory system and project architecture..._
+```
+
+### Resume a previous session
+
+```
+You [b7d1] > resume a3f2
+AIKA > Resumed session `a3f28b1c4d6e`.
+**Session summary:** User asked about memory system and project architecture, discussed PostgreSQL setup...
+```
+
+### Delete a session
+
+```
+You [a3f2] > delete session b7d1
+AIKA > Deleted session `b7d1c0f3a2e5`.
+```
+
+Deleting the current session automatically creates a new one.
+
+### Help
+
+```
+You [a3f2] > help
+AIKA > Commands: new session, list sessions, resume <id>, delete session <id>, clear, help, exit
+```
 
 ---
 
@@ -177,23 +208,25 @@ Dangerous commands (rm -rf, format, shutdown, etc.) are blocked by default.
 
 ### Open applications
 
+Beyond the built-in aliases, AIKA finds *any* installed application by scanning the Windows Registry, Start Menu, and Microsoft Store apps.
+
 ```
-You > open spotify
+You [a3f2] > open spotify
 AIKA > Opened spotify
 
-You > open chrome
+You [a3f2] > open chrome
 AIKA > Opened chrome
 
-You > open vscode
+You [a3f2] > open vscode
 AIKA > Opened vscode
 
-You > open notepad
+You [a3f2] > open notepad
 AIKA > Opened notepad
 
-You > open calculator
+You [a3f2] > open calculator
 AIKA > Opened calculator
 
-You > open settings
+You [a3f2] > open settings
 AIKA > Opened settings
 ```
 
@@ -374,10 +407,13 @@ If a command is falsely blocked, check the keyword list:
 ```
 You > !settings os
 AIKA > shell_enabled = True
-       shell_timeout = 30
-       shell_blocked_keywords = ['rm -rf', 'format', ...]
-       app_launcher_enabled = True
+        shell_timeout = 30
+        shell_blocked_keywords = ['rm -rf', 'format', ...]
+        app_launcher_enabled = True
+        app_launcher_uwp_enabled = True
 ```
+
+If the app launcher's UWP scan is too slow, toggle it off with `!set APP_LAUNCHER_UWP_ENABLED=false`.
 
 ### Database connection
 

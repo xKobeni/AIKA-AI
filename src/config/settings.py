@@ -74,6 +74,7 @@ class Settings:
             "rm -rf,format,del /,shutdown,rd /s,del /f,format c:,diskpart"
         ).split(",")
         self.app_launcher_enabled: bool = os.getenv("APP_LAUNCHER_ENABLED", "true").lower() == "true"
+        self.app_launcher_uwp_enabled: bool = os.getenv("APP_LAUNCHER_UWP_ENABLED", "true").lower() == "true"
 
         # Persona
         self.persona_path: str = os.getenv("PERSONA_PATH", "src/config/persona.txt")
