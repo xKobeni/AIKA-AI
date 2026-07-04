@@ -1,0 +1,89 @@
+{
+  "agents": [
+    {
+      "id": "aika",
+      "name": "AIKA",
+      "persona_path": "C:\\Users\\johna\\OneDrive\\Documents\\Visual Studio Blue\\AIKA AI\\src\\config\\personas\\aika.txt",
+      "model": null,
+      "allowed_tools": null,
+      "max_iterations": 5,
+      "is_active": true,
+      "role": "coordinator",
+      "delegates_to": [
+        "researcher",
+        "planner",
+        "writer"
+      ]
+    },
+    {
+      "id": "researcher",
+      "name": "Researcher",
+      "persona_path": "C:\\Users\\johna\\OneDrive\\Documents\\Visual Studio Blue\\AIKA AI\\src\\config\\personas\\researcher.txt",
+      "model": null,
+      "allowed_tools": [
+        "web_search",
+        "web_crawl",
+        "file_read",
+        "file_search"
+      ],
+      "max_iterations": 5,
+      "is_active": true,
+      "role": "specialist",
+      "delegates_to": []
+    },
+    {
+      "id": "planner",
+      "name": "Planner",
+      "persona_path": "C:\\Users\\johna\\OneDrive\\Documents\\Visual Studio Blue\\AIKA AI\\src\\config\\personas\\planner.txt",
+      "model": null,
+      "allowed_tools": [
+        "file_read",
+        "file_search",
+        "file_write"
+      ],
+      "max_iterations": 5,
+      "is_active": true,
+      "role": "specialist",
+      "delegates_to": []
+    },
+    {
+      "id": "writer",
+      "name": "Writer",
+      "persona_path": "C:\\Users\\johna\\OneDrive\\Documents\\Visual Studio Blue\\AIKA AI\\src\\config\\personas\\writer.txt",
+      "model": null,
+      "allowed_tools": [
+        "file_write",
+        "file_read",
+        "file_edit"
+      ],
+      "max_iterations": 5,
+      "is_active": true,
+      "role": "specialist",
+      "delegates_to": []
+    },
+    {
+      "id": "test1",
+      "name": "Test Agent",
+      "persona_path": "/path/to/persona.txt",
+      "model": "llama3:8b",
+      "allowed_tools": [
+        "calculator"
+      ],
+      "max_iterations": 5,
+      "is_active": true,
+      "role": null,
+      "delegates_to": null
+    },
+    {
+      "id": "test2",
+      "name": "Test Agent",
+      "persona_path": null,
+      "model": null,
+      "allowed_tools": null,
+      "max_iterations": 5,
+      "is_active": true,
+      "role": null,
+      "delegates_to": null
+    }
+  ]
+}

@@ -55,7 +55,6 @@ class Settings:
         self.web_search_max_results: int = int(os.getenv("WEB_SEARCH_MAX_RESULTS", "5"))
         self.tool_calling_enabled: bool = os.getenv("TOOL_CALLING_ENABLED", "true").lower() == "true"
         self.tool_call_max_params_length: int = int(os.getenv("TOOL_CALL_MAX_PARAMS_LENGTH", "5000"))
-        self.tool_call_confirm_high_permission: bool = os.getenv("TOOL_CALL_CONFIRM_HIGH", "false").lower() == "true"
 
         # Planner & Research
         self.plan_web_search_max_results: int = int(os.getenv("PLAN_WEB_SEARCH_MAX_RESULTS", "5"))
@@ -92,6 +91,21 @@ class Settings:
         ).split(",")
         self.app_launcher_enabled: bool = os.getenv("APP_LAUNCHER_ENABLED", "true").lower() == "true"
         self.app_launcher_uwp_enabled: bool = os.getenv("APP_LAUNCHER_UWP_ENABLED", "true").lower() == "true"
+
+        # Streaming
+        self.streaming_enabled: bool = os.getenv("STREAMING_ENABLED", "true").lower() == "true"
+
+        # Native tool calling
+        self.native_tool_calling: bool = os.getenv("NATIVE_TOOL_CALLING", "true").lower() == "true"
+
+        # Safety
+        self.tool_call_confirm_high_permission: bool = os.getenv("TOOL_CALL_CONFIRM_HIGH", "true").lower() == "true"
+        self.audit_log_enabled: bool = os.getenv("AUDIT_LOG_ENABLED", "true").lower() == "true"
+        self.audit_log_path: str = os.getenv("AUDIT_LOG_PATH", "logs/audit.log")
+        self.protected_paths: list = os.getenv(
+            "PROTECTED_PATHS",
+            ".env,.git,.gitignore,*.key,*.pem,*.env"
+        ).split(",")
 
         # Persona
         self.persona_path: str = os.getenv("PERSONA_PATH", "src/config/persona.txt")

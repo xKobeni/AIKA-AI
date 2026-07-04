@@ -7,14 +7,18 @@ AIKA is a living desktop companion that observes, remembers, and grows with its 
 ## Features
 
 - **Local LLM** — Chat via Ollama (Qwen, Llama, Mistral, etc.)
-- **LLM Tool Calling** — LLM decides which tools to use via JSON output, with dynamic multi-step chaining
+- **Streaming Responses** — Tokens appear as they're generated, no waiting for full response
+- **Native Tool Calling** — Uses Ollama's built-in function calling API with automatic fallback to text-parsed JSON
+- **Multi-Agent System** — Specialized agents (researcher, planner, writer) with delegation, chaining, parallel execution, and team conversations
 - **Auto Model Switching** — Automatically uses fast model (qwen2.5:3b) for simple tasks and smart model (llama3:8b) for complex reasoning
-- **Long-term Memory** — Automatic extraction, semantic search with recency/importance/profile scoring, user profile building
+- **Long-term Memory** — Automatic extraction, semantic search with recency/importance/profile scoring, user profile building, agent-scoped isolation
 - **Session Management** — Sessions with scoped context, new/list/resume/delete commands, auto-generated summaries
 - **Tool Use** — Calculator, file search/read/write/edit/delete, web search, web crawling, git operations, test runner
 - **OS Tools** — Shell execution (with safety controls), app launcher (with system-wide Registry + Start Menu + UWP scanning), folder listing, system information
 - **Planning** — Decomposes complex requests into executable step-by-step plans
 - **Research** — Multi-source web research with relevance ranking and structured report generation
+- **Safety Guardrails** — Confirmation prompts for high-risk operations, audit logging, protected paths, strengthened command blocklist
+- **Per-Agent Configuration** — Custom persona, model, and tool access per agent
 - **Configuration System** — View and change all settings at runtime (`!settings`, `!set`, `!save`, `!reload`, `!model`, `!log`)
 - **Editable Persona** — Personality defined in a plain text file, editable without restarting (`!persona`, `!persona reload`)
 
@@ -39,9 +43,25 @@ python src/main.py
 | [`docs/features.md`](docs/features.md) | Complete feature reference with settings table |
 | [`docs/usage.md`](docs/usage.md) | Practical usage guide with command examples |
 
+## Testing
+
+```bash
+python tests/test_all.py                  # Run all 108 tests (mocked, ~1.5s)
+python tests/test_all.py --verbose        # Show input/output per test
+python tests/test_all.py --list           # List all test names
+python tests/test_all.py --category "Memory System"  # Run one category
+python tests/test_all.py --live           # Real integration tests (needs Ollama + PostgreSQL)
+```
+
+15 categories: Settings & Config, Memory System, Tools (Math, File Ops, Web, System, Memory), Agent System, Brain & Routing, Agent Loop & Tool Calling, Orchestration, Safety, Streaming, Planner & Research, Live Integration.
+
+```bash
+python tests/demo.py                      # Guided feature tour (no dependencies needed)
+```
+
 ## Tech Stack
 
 - **LLM:** Ollama (local inference)
 - **Database:** PostgreSQL + pgvector
 - **Language:** Python 3.10+
-- **Key Libraries:** SQLAlchemy, crawl4ai, httpx, psutil, pywin32
+- **Key Libraries:** SQLAlchemy, crawl4ai, httpx, psutil, pywin32, rich

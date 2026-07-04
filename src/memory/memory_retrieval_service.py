@@ -37,7 +37,8 @@ class MemoryRetrievalService:
     def retrieve(
         self,
         query,
-        limit=5
+        limit=5,
+        agent_id=None
     ):
 
         if not query:
@@ -48,7 +49,7 @@ class MemoryRetrievalService:
         intent = self.intent_analyzer.detect_intent(query)
 
         if intent == MemoryIntent.PROFILE:
-            return self.retrieve_profile()
+            return self.retrieve_profile(agent_id=agent_id)
 
         t1 = time.time()
         query_embedding = (
@@ -60,7 +61,8 @@ class MemoryRetrievalService:
         t2 = time.time()
         memories = self.memory_repo.semantic_search(
             query_embedding,
-            limit=settings.memory_retrieval_limit * settings.memory_candidate_multiplier
+            limit=settings.memory_retrieval_limit * settings.memory_candidate_multiplier,
+            agent_id=agent_id
         )
         t_search = time.time() - t2
 
@@ -114,6 +116,6 @@ class MemoryRetrievalService:
 
         return min(score, 10)
 
-    def retrieve_profile(self):
+    def retrieve_profile(self, agent_id=None):
 
-        return self.profile_builder.build_profile()
+        return self.profile_builder.build_profile(agent_id=agent_id)

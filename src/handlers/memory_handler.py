@@ -16,10 +16,11 @@ class MemoryHandler:
 
     def store_memory(
         self,
-        user_message
+        user_message,
+        agent_id=None
     ):
 
-        raw = user_message[9:]
+        raw = user_message.split(" ", 1)[1] if " " in user_message else ""
 
         if ":" in raw:
 
@@ -45,7 +46,8 @@ class MemoryHandler:
                 content,
                 embedding,
                 category=memory_type,
-                importance=importance
+                importance=importance,
+                agent_id=agent_id
             )
 
             return f"Stored {memory_type} memory."
@@ -57,15 +59,16 @@ class MemoryHandler:
             "fact",
             content,
             embedding,
-            importance=5
+            importance=5,
+            agent_id=agent_id
         )
 
         return "Memory stored."
 
-    def list_memories(self):
+    def list_memories(self, agent_id=None):
 
         
-        memories = self.memory_repo.get_all()
+        memories = self.memory_repo.get_all(agent_id=agent_id)
 
         if not memories:
             return "No memories stored."
@@ -86,14 +89,16 @@ class MemoryHandler:
 
     def search_memory(
         self,
-        query
+        query,
+        agent_id=None
     ):
 
         if self.retrieval_service:
 
             result = self.retrieval_service.retrieve(
                 query,
-                limit=self.retrieval_limit
+                limit=self.retrieval_limit,
+                agent_id=agent_id
             )
 
             if isinstance(result, str):
@@ -115,7 +120,8 @@ class MemoryHandler:
             return "No memories found."
 
         results = self.memory_repo.semantic_search(
-            query_embedding
+            query_embedding,
+            agent_id=agent_id
         )
 
         if not results:
@@ -144,14 +150,16 @@ class MemoryHandler:
         
     def semantic_search_memory(
         self,
-        query
+        query,
+        agent_id=None
     ):
 
         if self.retrieval_service:
 
             result = self.retrieval_service.retrieve(
                 query,
-                limit=self.retrieval_limit
+                limit=self.retrieval_limit,
+                agent_id=agent_id
             )
 
             if isinstance(result, str):
@@ -167,7 +175,8 @@ class MemoryHandler:
         memories = (
             self.memory_repo
             .semantic_search(
-                query_embedding
+                query_embedding,
+                agent_id=agent_id
             )
         )
 

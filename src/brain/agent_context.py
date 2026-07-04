@@ -1,21 +1,13 @@
 import json
 
-FAIL_PHRASES = [
-    "no search results",
-    "no results found",
-    "error",
-    "failed",
-    "couldn't find",
-    "not available",
-    "not found",
-    "access denied",
-]
+from brain.common import FAIL_PHRASES
 
 
 class AgentContext:
 
-    def __init__(self, original_message):
+    def __init__(self, original_message, agent_id=None):
         self.original_message = original_message
+        self.agent_id = agent_id
         self.iterations = 0
         self.messages = []
         self.actions_taken = []

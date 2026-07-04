@@ -6,14 +6,14 @@ Practical examples for every feature. Run AIKA with `python src\main.py`.
 
 ## Chat
 
-Just type naturally. AIKA responds with context from your memories and recent conversation. The model auto-switches between fast (qwen2.5:3b) for simple tasks and smart (llama3:8b) for complex ones.
+Just type naturally. AIKA responds with streaming tokens (you see text appear as it's generated). The model auto-switches between fast (qwen2.5:3b) for simple tasks and smart (llama3:8b) for complex ones.
 
 ```
 You > hello Aika
-AIKA > Hey! How's it going?   (uses fast model)
+AIKA > Hey! How's it going?   (streams token-by-token, uses fast model)
 
 You > analyze the architecture of this codebase
-AIKA > (uses smart model for complex analysis)
+AIKA > (uses smart model for complex analysis, streams response)
 
 You > what's the weather like?
 AIKA > Let me check... (automatically searches the web)
@@ -23,7 +23,7 @@ AIKA > Let me check... (automatically searches the web)
 
 ## Memory
 
-AIKA auto-extracts memories from your messages, but you can also manage them manually.
+AIKA auto-extracts memories from your messages, but you can also manage them manually. Memories are scoped per agent — when using a specialized agent, only that agent's memories are retrieved.
 
 ### Store a memory
 
@@ -60,6 +60,97 @@ AIKA > 1: User project: building an AI assistant (importance: 9)
 ```
 You > forget 2
 AIKA > Memory deleted.
+```
+
+---
+
+## Multi-Agent System
+
+AIKA coordinates specialized agents that handle different types of work. You can delegate tasks, chain outputs, run agents in parallel, or have them collaborate in a team conversation.
+
+### Default Agents
+
+| Agent | Role | Model | Tools |
+|---|---|---|---|
+| `aika` | Coordinator | llama3:8b | All tools |
+| `researcher` | Research specialist | llama3:8b | web_search, web_crawl, file_read |
+| `planner` | Planning specialist | llama3:8b | file_read, file_search, calculator |
+| `writer` | Writing specialist | llama3:8b | file_read, file_write, file_edit |
+
+### Delegate a task
+
+Ask AIKA to hand off work to a specialist:
+
+```
+You > delegate to researcher: what are the latest AI papers on memory systems?
+AIKA > (researcher agent runs the web search and report, then returns the result)
+```
+
+### Chain agents
+
+Chain one agent's output into the next:
+
+```
+You > chain researcher,planner,writer: investigate rust vs go for a web backend
+AIKA > (researcher gathers info → planner structures the comparison → writer produces a report)
+```
+
+### Run agents in parallel
+
+```
+You > parallel researcher,writer: research quantum computing AND draft an intro about it
+AIKA > (both agents run simultaneously, results combined)
+```
+
+### Team conversation
+
+Agents collaborate in a shared conversation thread:
+
+```
+You > team researcher,planner,writer: plan and write a blog post about AI safety
+AIKA > (agents take turns contributing, sharing context, until [TEAM_DONE] or max 10 turns)
+```
+
+### List agent status
+
+```
+You > agents status
+AIKA > Agent Status:
+         aika        : active | model: llama3:8b | tools: all
+         researcher  : active | model: llama3:8b | tools: web_search, web_crawl, file_read
+         planner     : active | model: llama3:8b | tools: file_read, file_search, calculator
+         writer      : active | model: llama3:8b | tools: file_read, file_write, file_edit
+```
+
+### Agent-specific chat
+
+Chat directly as a specific agent:
+
+```
+You > use researcher
+AIKA > Switched to agent: researcher
+
+You > what do you know about vector databases?
+AIKA > (researcher agent responds with its persona and tool access)
+```
+
+### Configure agents
+
+```
+You > create agent analyst Data Analyst model=qwen2.5:3b
+AIKA > Agent 'analyst' created.
+
+You > set agent model writer llama3.1:8b
+AIKA > Model for 'writer' set to llama3.1:8b
+
+You > set agent tools analyst ["web_search", "file_read"]
+AIKA > Tools for 'analyst' set to: web_search, file_read
+
+You > show agent tools writer
+AIKA > writer tools: file_read, file_write, file_edit
+
+You > show agent model writer
+AIKA > writer model: llama3.1:8b
 ```
 
 ---
@@ -103,7 +194,7 @@ AIKA > Researches → generates analysis
 
 ## File Operations
 
-All file operations are sandboxed to `FILE_SEARCH_ROOT_PATH` (default: the project root). Path traversal is blocked.
+All file operations are sandboxed to `FILE_SEARCH_ROOT_PATH` (default: the project root). Path traversal is blocked. Protected paths (`.env`, `*.key`, `*.pem`, `.git/`) are blocked from write and delete operations.
 
 ### Find files
 
@@ -121,9 +212,6 @@ AIKA > Found: src\config\settings.py
 ```
 You > read src/main.py
 AIKA > (returns file content)
-
-You > read .env
-AIKA > (returns .env content)
 
 You > read src/main.py lines 1-50
 AIKA > (returns lines 1-50)
@@ -225,6 +313,7 @@ Deleting the current session automatically creates a new one.
 You [a3f2] > help
 AIKA > Commands: new session, list sessions, resume <id>, delete session <id>, clear, help, exit
        Config: !settings, !set, !save, !reload, !model, !log, !persona
+       Agents: list agents, use <id>, delegate, chain, team, agents status
 ```
 
 ---
@@ -244,7 +333,7 @@ You > run dir /s *.py
 AIKA > (lists all Python files recursively)
 ```
 
-Dangerous commands (rm -rf, format, shutdown, etc.) are blocked by default.
+Dangerous commands (rm -rf, format, shutdown, reg add, net user, bcdedit, etc.) are blocked by default. High-risk commands (like file_delete, file_write) require user confirmation when `TOOL_CALL_CONFIRM_HIGH=true`.
 
 ### Open applications
 
@@ -259,15 +348,6 @@ AIKA > Opened chrome
 
 You [a3f2] > open vscode
 AIKA > Opened vscode
-
-You [a3f2] > open notepad
-AIKA > Opened notepad
-
-You [a3f2] > open calculator
-AIKA > Opened calculator
-
-You [a3f2] > open settings
-AIKA > Opened settings
 ```
 
 ### List directories
@@ -278,13 +358,6 @@ AIKA > src/
        brain/
        config/
        handlers/
-       ...
-
-You > list src/brain/
-AIKA > brain/
-       __init__.py
-       brain.py
-       router.py
        ...
 
 You > show files
@@ -301,12 +374,6 @@ AIKA > OS: Windows 10 10.0.19045
        RAM: 62% used (16 GB / 32 GB)
        Disk: 45% used (200 GB / 500 GB)
        Uptime: 5d 12h 34m
-
-You > how's my system
-AIKA > (same output)
-
-You > system health
-AIKA > (same output)
 ```
 
 ---
@@ -324,9 +391,6 @@ AIKA > 22.5
 
 You > 2 ** 10
 AIKA > 1024
-
-You > 100 / 3
-AIKA > 33.333...
 ```
 
 ---
@@ -342,8 +406,6 @@ You > !settings
 AIKA > chat_model = qwen2.5:3b
        fast_model = qwen2.5:3b
        smart_model = llama3:8b
-       embedding_model = nomic-embed-text
-       ollama_host = http://localhost:11434
        ...
 ```
 
@@ -354,18 +416,18 @@ You > !settings llm
 AIKA > chat_model = qwen2.5:3b
        fast_model = qwen2.5:3b
        smart_model = llama3:8b
-       embedding_model = nomic-embed-text
-       ollama_host = http://localhost:11434
-       llm_timeout = 30
-       tool_calling_enabled = True
-
-You > !settings memory
-AIKA > memory_retrieval_limit = 8
-       memory_min_score = 0.3
+       native_tool_calling = True
+       streaming_enabled = True
        ...
+
+You > !settings safety
+AIKA > tool_call_confirm_high = True
+       audit_log_enabled = True
+       audit_log_path = logs/audit.log
+       protected_paths = .env,.git,.gitignore,*.key,*.pem,*.env
 ```
 
-Available categories: `llm`, `database`, `memory`, `context`, `conversation`, `web`, `planner`, `validation`, `tools`, `paths`, `os`, `persona`, `logging`
+Available categories: `llm`, `database`, `memory`, `context`, `conversation`, `web`, `planner`, `validation`, `tools`, `paths`, `os`, `persona`, `logging`, `safety`
 
 ### Change a setting
 
@@ -408,12 +470,16 @@ AIKA > Models:
 
 You > !model fast qwen2.5:3b
 AIKA > Model fast: qwen2.5:3b -> qwen2.5:3b
+```
 
-You > !model smart llama3:8b
-AIKA > Model smart: llama3:8b -> llama3:8b
+### List available models
 
-You > !model llama3:8b
-AIKA > Model switched: qwen2.5:3b -> llama3:8b
+```
+You > !model list
+AIKA > Available Ollama models:
+         qwen2.5:3b
+         llama3:8b
+         nomic-embed-text
 ```
 
 ### Log level
@@ -432,7 +498,7 @@ AIKA > Log level: DEBUG -> WARNING
 
 ## Persona
 
-AIKA's personality is defined in `src/config/persona.txt`. You can view and reload it without restarting.
+AIKA's personality is defined in a plain text file. The default persona is in `src/config/persona.txt`. Each agent has its own persona file in `src/config/personas/`.
 
 ### View current persona
 
@@ -450,7 +516,7 @@ AIKA > Current persona:
 
 ### Reload after editing
 
-1. Edit `src/config/persona.txt` in any text editor
+1. Edit the persona file in any text editor
 2. Run this without restarting:
 
 ```
@@ -465,6 +531,63 @@ You > !set PERSONA_PATH=src/config/my_custom_persona.txt
 You > !persona reload
 AIKA > Persona reloaded.
 ```
+
+### View agent-specific persona
+
+```
+You > show agent persona researcher
+AIKA > researcher persona:
+       You are a research specialist. Focus on gathering accurate information...
+```
+
+### Set agent persona
+
+```
+You > set agent persona writer src/config/personas/writer.txt
+AIKA > Persona for 'writer' set to src/config/personas/writer.txt
+```
+
+---
+
+## Safety & Audit
+
+### Confirmation prompts
+
+High-risk tools (file_delete, file_write, shell) require user confirmation when `TOOL_CALL_CONFIRM_HIGH=true` (default):
+
+```
+You > delete src/old_file.txt
+AIKA > Confirm deletion of src/old_file.txt? (y/n):
+```
+
+### Audit logging
+
+All tool calls are logged to `logs/audit.log` in JSONL format when `AUDIT_LOG_ENABLED=true` (default). Each entry includes timestamp, tool name, parameters, result status, and agent_id.
+
+### Protected paths
+
+Files matching protected patterns cannot be written or deleted:
+
+```
+You > delete .env
+AIKA > Error: File is protected: .env
+
+You > write *.key content
+AIKA > Error: File is protected: *.key
+```
+
+Default protected patterns: `.env`, `.git`, `.gitignore`, `*.key`, `*.pem`, `*.env`
+
+### Strengthened shell blocklist
+
+Dangerous shell commands are blocked by default. The blocklist includes patterns for:
+
+- File destruction: `rm -rf`, `rmdir /s`, `Remove-Item -Recurse`
+- Disk formatting: `format`, `mkfs`
+- System operations: `shutdown`, `bcdedit`, `diskpart`
+- Registry: `reg add`, `reg delete`
+- User management: `net user`, `net localgroup`
+- Encoding: `certutil`
 
 ---
 
@@ -491,8 +614,6 @@ AIKA > shell_enabled = True
         app_launcher_uwp_enabled = True
 ```
 
-If the app launcher's UWP scan is too slow, toggle it off with `!set APP_LAUNCHER_UWP_ENABLED=false`.
-
 ### Database connection
 
 If AIKA can't connect to the database, check `DATABASE_URL` in `.env` and verify PostgreSQL is running.
@@ -508,18 +629,43 @@ Also confirm Ollama is running (`ollama serve`) and the model is pulled (`ollama
 
 ### Model not found
 
-If you see "model not found" errors:
-
 ```
-You > !model
-AIKA > Models:
-         fast:  qwen2.5:3b
-         smart: llama3:8b
-         chat:  llama3:8b
+You > !model list
+AIKA > Available Ollama models:
+         qwen2.5:3b
+         llama3:8b
+         nomic-embed-text
 ```
 
-Verify both models are pulled: `ollama list`
 Pull missing models: `ollama pull <model_name>`
+
+---
+
+## Testing
+
+### Run the test suite
+
+```bash
+python tests/test_all.py                  # All 108 tests (mocked, ~1.5s)
+python tests/test_all.py --verbose        # Show input/output per test
+python tests/test_all.py --list           # List all test names
+python tests/test_all.py --category "Memory System"  # Run one category
+python tests/test_all.py --live           # Real integration (needs Ollama + PostgreSQL)
+```
+
+### 15 test categories
+
+Settings & Config, Memory System, Tools (Math, File Ops, Web, System, Memory), Agent System, Brain & Routing, Agent Loop & Tool Calling, Orchestration, Safety, Streaming, Planner & Research, Live Integration.
+
+### Live integration tests
+
+The `--live` flag runs 8 tests against real Ollama and PostgreSQL. These tests auto-skip if the services aren't available.
+
+### Feature tour
+
+```bash
+python tests/demo.py                      # Guided 11-section tour (no dependencies)
+```
 
 ---
 

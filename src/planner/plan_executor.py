@@ -552,5 +552,5 @@ class PlanExecutor:
                     f"[{timestamp}] {message}\n"
                 )
 
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to write execution log: %s", e)

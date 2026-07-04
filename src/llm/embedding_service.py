@@ -1,5 +1,9 @@
+import logging
+
 import ollama
 from config.settings import settings
+
+logger = logging.getLogger(__name__)
 
 
 class EmbeddingService:
@@ -17,10 +21,17 @@ class EmbeddingService:
         if not text:
             return None
 
-        response = ollama.embed(
-            model=self.model,
-            input=text
-        )
+        try:
+            response = ollama.embed(
+                model=self.model,
+                input=text
+            )
+        except ollama.ResponseError as e:
+            logger.error("Ollama embedding model error (%s): %s", self.model, e)
+            return None
+        except Exception as e:
+            logger.error("Embedding generation failed: %s", e)
+            return None
         
         embeddings = response.get(
             "embeddings",
@@ -28,11 +39,7 @@ class EmbeddingService:
         )
 
         if not embeddings:
-
-            print(
-                f"[EmbeddingService] No embedding returned for: {text}"
-            )
-
+            logger.warning("No embedding returned for text: %.50s...", text)
             return None
 
         return embeddings[0]

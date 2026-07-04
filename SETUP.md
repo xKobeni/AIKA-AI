@@ -60,6 +60,7 @@ Key packages:
 | `httpx` | HTTP client |
 | `numpy` | Numerical operations |
 | `psutil` | System information (CPU, RAM, disk) |
+| `rich` | Formatted terminal output for test suite |
 
 ---
 
@@ -127,6 +128,17 @@ Required variables:
 | `TOOL_CALLING_ENABLED` | `true` | Enable LLM-driven tool calling |
 | `LOG_LEVEL` | `DEBUG` | Logging verbosity |
 
+Optional variables:
+
+| Variable | Default | Description |
+|---|---|---|
+| `STREAMING_ENABLED` | `true` | Stream response tokens as they're generated |
+| `NATIVE_TOOL_CALLING` | `true` | Use Ollama's native function calling API |
+| `TOOL_CALL_CONFIRM_HIGH` | `true` | Prompt for confirmation before high-risk tool execution |
+| `AUDIT_LOG_ENABLED` | `true` | Log all tool calls to audit file |
+| `AUDIT_LOG_PATH` | `logs/audit.log` | Path to audit log file |
+| `PROTECTED_PATHS` | `.env,.git,.gitignore,*.key,*.pem,*.env` | Files/patterns blocked from write/delete |
+
 > **Security note:** `.env` is git-ignored. Never commit secrets to the repository.
 
 ---
@@ -137,12 +149,14 @@ Required variables:
 python src/create_tables.py
 ```
 
-This creates the `memories` and `conversations` tables with the `pgvector` vector column.
+This creates the `memories`, `conversations`, `sessions`, and `agents` tables with the `pgvector` vector column and `agent_id` columns for multi-agent isolation.
 
 Expected output:
 ```
 Tables created.
 ```
+
+> **Note:** If upgrading from a previous version, you may need to add the `agent_id` columns manually. See ARCHITECTURE.md for the migration SQL.
 
 ---
 
@@ -165,7 +179,19 @@ You >
 ## 9. Run Tests (Optional)
 
 ```bash
-python -m pytest tests/
+python tests/test_all.py                  # Run all 108 tests (mocked, ~1.5s)
+python tests/test_all.py --verbose        # Show input/output per test
+python tests/test_all.py --list           # List all test names and categories
+python tests/test_all.py --category "Memory System"  # Run one category
+python tests/test_all.py --live           # Real integration (requires Ollama + PostgreSQL)
+```
+
+15 test categories: Settings & Config, Memory System, Tools (Math, File Ops, Web, System, Memory), Agent System, Brain & Routing, Agent Loop & Tool Calling, Orchestration, Safety, Streaming, Planner & Research, Live Integration.
+
+> **Windows note:** Set `PYTHONIOENCODING=utf-8` if Rich output shows garbled characters.
+
+```bash
+python tests/demo.py                      # Guided feature tour (no dependencies needed)
 ```
 
 ---

@@ -1,6 +1,25 @@
 # AIKA — Features & Functionality
 
-AIKA is a CLI-based AI assistant with persistent memory, tool use, multi-step planning, web research, and OS-level capabilities — all running locally via Ollama.
+AIKA is a CLI-based AI assistant with persistent memory, tool use, multi-step planning, web research, multi-agent orchestration, and OS-level capabilities — all running locally via Ollama.
+
+---
+
+## Streaming Responses
+
+When `STREAMING_ENABLED=true` (default), AIKA streams response tokens as they're generated. You see text appear word-by-word instead of waiting for the full response.
+
+- During tool-calling iterations, chunks are buffered silently — only the final free-text answer streams to the user.
+- Streaming works with both native tool calling and legacy JSON mode.
+
+---
+
+## Native Tool Calling
+
+When `NATIVE_TOOL_CALLING=true` (default), AIKA sends tool schemas to Ollama via the `tools=` parameter. The LLM responds with structured `tool_calls` — no JSON parsing needed.
+
+- Falls back to text-parsed JSON automatically if the model doesn't support native calling.
+- Tool schemas are converted from AIKA's `get_schema()` format to Ollama's OpenAI-compatible format.
+- Simplified system prompts in native mode — no JSON format instructions needed.
 
 ---
 
@@ -20,7 +39,7 @@ When you chat, AIKA scans your messages for patterns and automatically stores me
 | "I know...", "I can..." | `skill` | 7 |
 | "I am...", "I have...", "I live..." | `fact` | 5 |
 
-Extraction runs on a background thread — it never blocks your conversation.
+Extraction runs on a background thread — it never blocks your conversation. Memories are scoped per agent — each agent has its own isolated memory store.
 
 ### Semantic Search
 
@@ -48,6 +67,68 @@ AIKA builds a user profile by scoring memories against categories (project, goal
 
 ---
 
+## Multi-Agent System
+
+AIKA coordinates specialized agents that handle different types of work.
+
+### Agent Profile
+
+Each agent has:
+- **id** — Unique identifier (e.g. "aika", "researcher")
+- **name** — Display name
+- **persona_path** — Custom persona file
+- **model** — Model override (null = use global)
+- **allowed_tools** — List of tool names the agent can use (null = all tools)
+- **max_iterations** — Max tool-calling loop iterations (default: 5)
+- **role** — Description of the agent's specialty
+- **delegates_to** — Which agents this agent can delegate to
+
+### Default Agents
+
+| Agent | Role | Model | Allowed Tools |
+|---|---|---|---|
+| `aika` | Coordinator | llama3:8b | All tools |
+| `researcher` | Research specialist | llama3:8b | web_search, web_crawl, file_read |
+| `planner` | Planning specialist | llama3:8b | file_read, file_search, calculator |
+| `writer` | Writing specialist | llama3:8b | file_read, file_write, file_edit |
+
+### Orchestration Modes
+
+| Mode | Description |
+|---|---|
+| **Delegate** | One agent hands off a subtask to another. Returns the specialist's result. |
+| **Chain** | Output of one agent feeds into the next as context. |
+| **Parallel** | Multiple agents work simultaneously, results are combined. |
+| **Team** | Agents collaborate in a shared conversation thread with a shared workspace. Terminates on `[TEAM_DONE]` marker or max turns (default: 10). |
+
+### Tool Scoping
+
+Three-layer defense for per-agent tool access:
+1. **Prompt filtering** — System prompt only lists allowed tools
+2. **Parser rejection** — AgentLoop rejects tool calls for disallowed tools
+3. **Execution blocking** — ToolManager checks `allowed_tool_names` before execution
+
+### Agent Commands
+
+| Command | Description |
+|---|---|
+| `list agents` | Show all registered agents |
+| `use <id>` | Switch to a specific agent |
+| `create agent <id> <name> [model=<model>]` | Create a new agent |
+| `set agent model <id> <model>` | Set agent's model |
+| `set agent tools <id> [tool1,tool2]` | Set agent's allowed tools |
+| `set agent persona <id> <path>` | Set agent's persona file |
+| `show agent model <id>` | View agent's model |
+| `show agent tools <id>` | View agent's allowed tools |
+| `show agent persona <id>` | View agent's persona file |
+| `agents status` | Show all agents with status, model, and tools |
+| `delegate to <agent>: <task>` | Delegate a task to a specialist |
+| `chain <agent1>,<agent2>: <task>` | Chain agents sequentially |
+| `parallel <agent1>,<agent2>: <task>` | Run agents in parallel |
+| `team <agent1>,<agent2>: <task>` | Team conversation mode |
+
+---
+
 ## Conversation
 
 ### Chat with LLM
@@ -63,7 +144,7 @@ Context is built from:
 - Recent conversation history (scoped to current session)
 - Web search results (when automatically triggered)
 - Current time and date
-- Persona (personality traits and behavior)
+- Agent persona (loaded from file)
 
 ### Session-Scoped Context
 
@@ -157,32 +238,27 @@ When you use keywords like `research`, `investigate`, or `find information about
 
 ## LLM Tool Calling
 
-AIKA uses LLM-driven tool calling instead of rule-based prefix matching. The LLM decides which tools to use based on the user's request and available tool schemas.
+AIKA uses LLM-driven tool calling with native Ollama function calling and fallback to JSON text-parsing.
 
-### How It Works
+### Native Mode (default)
 
-1. **Tool schemas** are sent to the LLM as JSON definitions
-2. **LLM responds** with either:
-   - `{"tool": "tool_name", "parameters": {...}}` — to call a tool
-   - `{"tool": null, "response": "..."}` — to respond directly
-3. **Agent loop** executes the tool, feeds the result back to the LLM
+1. **Tool schemas** are sent to Ollama via the `tools=` parameter
+2. **LLM responds** with structured `tool_calls` array
+3. **Agent loop** executes tools, feeds results back with `role: "tool"` messages
 4. **Dynamic chaining** — LLM decides next step based on previous results
 5. **Automatic escalation** — If tool fails or task is complex, escalates to smart model
 
-### Example Flow
+### Legacy Mode (fallback)
 
-```
-User: "find and read the main file"
-→ LLM: {"tool": "file_search", "parameters": {"query": "main"}}
-→ Tool: Found: src/main.py
-→ LLM: {"tool": "file_read", "parameters": {"path": "src/main.py"}}
-→ Tool: (file content)
-→ LLM: "The main file contains the entry point for AIKA..."
-```
+If `NATIVE_TOOL_CALLING=false`, AIKA uses text-parsed JSON:
 
-### Legacy Fallback
+1. Tool schemas are included in the system prompt as JSON definitions
+2. LLM responds with `{"tool": "tool_name", "parameters": {...}}`
+3. AgentLoop parses the JSON, executes the tool, feeds result back
 
-If `TOOL_CALLING_ENABLED=false` or LLM parsing fails twice, AIKA falls back to the original rule-based DecisionEngine + Router.
+### Auto-Fallback
+
+If native tool calling fails (model doesn't support it), AIKA automatically falls back to legacy mode on the next iteration.
 
 ---
 
@@ -229,8 +305,11 @@ AIKA > Models:
 You > !model fast qwen2.5:3b
 AIKA > Model fast: qwen2.5:3b -> qwen2.5:3b
 
-You > !model smart llama3:8b
-AIKA > Model smart: llama3:8b -> llama3:8b
+You > !model list
+AIKA > Available Ollama models:
+         qwen2.5:3b
+         llama3:8b
+         nomic-embed-text
 ```
 
 ---
@@ -251,7 +330,7 @@ Reads specific line ranges from files. Useful for reading portions of large file
 
 ### File Write
 
-Creates or overwrites files. Includes permission checks for high-risk operations.
+Creates or overwrites files. Protected paths (`.env`, `*.key`, `*.pem`, `.git/`) are blocked. Content limited to 1MB.
 
 ### File Edit
 
@@ -263,7 +342,7 @@ Edits multiple files in a single operation. Useful for batch changes across a co
 
 ### File Delete
 
-Deletes files. Requires confirmation for high-risk operations.
+Deletes files. Protected paths are blocked. Requires confirmation when `TOOL_CALL_CONFIRM_HIGH=true`.
 
 ### File Append
 
@@ -312,7 +391,7 @@ Runs arbitrary shell commands via `subprocess`.
 **Security features:**
 - `SHELL_ENABLED` toggle (default: `true`)
 - `SHELL_TIMEOUT` kills long-running commands (default: 30s)
-- `SHELL_BLOCKED_KEYWORDS` prevents dangerous commands (rm -rf, format, shutdown, etc.)
+- `SHELL_BLOCKED_KEYWORDS` prevents dangerous commands (13 patterns including rm -rf, format, shutdown, reg add, net user, bcdedit, etc.)
 
 ### App Launcher
 
@@ -321,7 +400,7 @@ Opens applications on the host system. In addition to the hardcoded aliases belo
 | Setting | Default | Description |
 |---|---|---|
 | `APP_LAUNCHER_ENABLED` | `true` | Enable the app launcher tool |
-| `APP_LAUNCHER_UWP_ENABLED` | `true` | Enable UWP/Microsoft Store app scanning (adds ~2s to first scan) |
+| `APP_LAUNCHER_UWP_ENABLED` | `true` | Enable UWP/Microsoft Store app scanning |
 
 | Alias | App |
 |---|---|
@@ -337,31 +416,13 @@ Opens applications on the host system. In addition to the hardcoded aliases belo
 | `settings` | Windows Settings |
 | `control panel` | Control Panel |
 
-```
-> open spotify
-> open chrome
-> open notepad
-```
-
 ### Folder Listing
 
 Lists directory contents with file sizes. Sandboxed to the workspace root.
 
-```
-> list src/
-> show files
-> list src/brain/
-```
-
 ### System Information
 
 Reports OS, CPU, RAM, disk usage, Python version, and uptime using `psutil`.
-
-```
-> system info
-> how's my system
-> system health
-```
 
 | Field | Source |
 |---|---|
@@ -374,26 +435,49 @@ Reports OS, CPU, RAM, disk usage, Python version, and uptime using `psutil`.
 
 ### Git Operations
 
-Performs git operations on the workspace.
-
-```
-> git status
-> git diff
-> git log
-> git commit "message"
-> git branch
-> git checkout main
-> git add .
-```
+Performs git operations on the workspace (status, diff, log, commit, branch, checkout, add).
 
 ### Test Runner
 
-Runs pytest or unittest tests.
+Runs pytest or unittest tests within AIKA. Supports running specific test files.
 
-```
-> run tests
-> test tests/test_agent_loop.py
-```
+---
+
+## Testing & Test Suite
+
+AIKA includes a comprehensive standalone test suite (`tests/test_all.py`) with Rich-formatted output. It runs without external dependencies (all Ollama/PostgreSQL calls are mocked).
+
+### Commands
+
+| Command | Description |
+|---|---|
+| `python tests/test_all.py` | Run all 108 tests (mocked, ~1.5s) |
+| `python tests/test_all.py --verbose` | Show input/output details per test |
+| `python tests/test_all.py --list` | List all test names and categories |
+| `python tests/test_all.py --category "Safety"` | Run one category |
+| `python tests/test_all.py --live` | Real integration tests (needs Ollama + PostgreSQL) |
+
+### Categories (15)
+
+Settings & Config, Memory System, Tools (Math, File Ops, Web, System, Memory), Agent System, Brain & Routing, Agent Loop & Tool Calling, Orchestration, Safety, Streaming, Planner & Research, Live Integration.
+
+### Live Integration Tests
+
+The `--live` flag runs 8 tests against real Ollama and PostgreSQL:
+- `test_live_ollama_generate` — Real Ollama generate call
+- `test_live_ollama_chat` — Chat with system prompt
+- `test_live_ollama_stream` — Streaming response
+- `test_live_calculator_then_llm` — Calculator result fed to LLM
+- `test_live_web_search` — Real DuckDuckGo search
+- `test_live_memory_store_and_search` — Real PostgreSQL memory ops
+- `test_live_full_agent_loop` — Full agent loop with real LLM
+- `test_live_agent_loop_stream` — Streaming agent loop
+
+### Demo Script
+
+`tests/demo.py` runs a guided 11-section feature tour with mocked responses. No external dependencies required.
+
+Sections: Settings, Memory, Tools, Tool Scoping, Agents, Orchestration, Streaming, Native Tool Calling, Safety, Planner, Test Suite.
 
 ---
 
@@ -401,11 +485,38 @@ Runs pytest or unittest tests.
 
 Safe arithmetic evaluation using AST parsing (no `eval()`). Supports `+`, `-`, `*`, `/`, `//`, `**`, `%`.
 
-```
-> 2 + 2
-> (15 * 3) / 2
-> 2 ** 10
-```
+---
+
+## Safety Guardrails
+
+### Confirmation Prompts
+
+High-risk tools (file_delete, file_write, shell) require user confirmation when `TOOL_CALL_CONFIRM_HIGH=true` (default: true).
+
+### Audit Logging
+
+All tool calls are logged to `logs/audit.log` in JSONL format when `AUDIT_LOG_ENABLED=true` (default: true). Each entry includes:
+- Timestamp
+- Tool name
+- Input parameters
+- Result status (success/error)
+- Agent ID (if applicable)
+
+### Protected Paths
+
+Files matching protected patterns cannot be written or deleted. Default patterns: `.env`, `.git`, `.gitignore`, `*.key`, `*.pem`, `*.env`
+
+Configurable via `PROTECTED_PATHS` env var (comma-separated list, supports fnmatch glob patterns).
+
+### Shell Blocklist
+
+Dangerous shell commands are blocked. 13 patterns covering:
+- File destruction: `rm -rf`, `rmdir /s`, `Remove-Item -Recurse`
+- Disk formatting: `format`, `mkfs`
+- System operations: `shutdown`, `bcdedit`, `diskpart`
+- Registry: `reg add`, `reg delete`
+- User management: `net user`, `net localgroup`
+- Encoding: `certutil`
 
 ---
 
@@ -426,31 +537,32 @@ All settings are configurable at runtime without restarting via the `!` command 
 | `!model <name>` | Switch chat model |
 | `!model fast <name>` | Switch fast model |
 | `!model smart <name>` | Switch smart model |
+| `!model list` | List available Ollama models |
 | `!log <level>` | Change log level (debug/info/warning/error) |
 | `!persona` | Display current persona |
 | `!persona reload` | Reload persona from file |
 
 ### Categories
 
-`llm`, `database`, `memory`, `context`, `conversation`, `web`, `planner`, `validation`, `tools`, `paths`, `os`, `persona`, `logging`
-
-### Examples
-
-```
-> !settings llm
-> !set CHAT_MODEL=llama3.1:8b
-> !set LOG_LEVEL=INFO
-> !save
-> !model
-> !model fast qwen2.5:3b
-> !log warning
-```
+`llm`, `database`, `memory`, `context`, `conversation`, `web`, `planner`, `validation`, `tools`, `paths`, `os`, `persona`, `logging`, `safety`
 
 ---
 
 ## Persona System
 
-AIKA's personality is defined in a plain text file (`src/config/persona.txt`) that can be edited without touching code.
+AIKA's personality is defined in a plain text file that can be edited without touching code. Each agent has its own persona file.
+
+### Default Persona
+
+`src/config/persona.txt` — Main AIKA persona.
+
+### Agent Personas
+
+`src/config/personas/` — Per-agent persona files:
+- `aika.txt` — Coordinator persona
+- `researcher.txt` — Research specialist
+- `planner.txt` — Planning specialist
+- `writer.txt` — Writing specialist
 
 ### Commands
 
@@ -458,23 +570,16 @@ AIKA's personality is defined in a plain text file (`src/config/persona.txt`) th
 |---|---|
 | `!persona` | Display current persona |
 | `!persona reload` | Reload persona from file |
-
-### Editing
-
-Open `src/config/persona.txt` in any text editor and modify the personality, voice, and behavior sections. Then run `!persona reload` to apply changes without restarting.
-
-You can also switch between multiple persona files:
-
-```
-> !set PERSONA_PATH=src/config/my_persona.txt
-> !persona reload
-```
+| `show agent persona <id>` | View agent's persona file |
+| `set agent persona <id> <path>` | Set agent's persona file |
 
 ---
 
 ## Intent Classification
 
 When rule-based matching doesn't recognize a command, AIKA falls back to an LLM-based intent classifier that categorizes messages into: `WEB_SEARCH`, `FILE_SEARCH`, `MEMORY_SEARCH`, `PLAN_EXECUTION`, or `CHAT`.
+
+Quick detection also handles obvious greetings and simple questions without calling the intent classifier, saving LLM calls.
 
 ---
 
@@ -492,7 +597,8 @@ When rule-based matching doesn't recognize a command, AIKA falls back to an LLM-
 | `LLM_TIMEOUT` | `30` | LLM request timeout (seconds) |
 | `TOOL_CALLING_ENABLED` | `true` | Enable LLM-driven tool calling |
 | `TOOL_CALL_MAX_PARAMS_LENGTH` | `5000` | Max parameter length for tool calls |
-| `TOOL_CALL_CONFIRM_HIGH` | `false` | Confirm high-risk tool operations |
+| `STREAMING_ENABLED` | `true` | Stream response tokens |
+| `NATIVE_TOOL_CALLING` | `true` | Use Ollama's native function calling API |
 
 ### Database
 
@@ -562,6 +668,16 @@ When rule-based matching doesn't recognize a command, AIKA falls back to an LLM-
 | `SHELL_TIMEOUT` | `30` | Command timeout (seconds) |
 | `SHELL_BLOCKED_KEYWORDS` | `rm -rf,format,...` | Dangerous command patterns |
 | `APP_LAUNCHER_ENABLED` | `true` | Enable app launcher |
+| `APP_LAUNCHER_UWP_ENABLED` | `true` | Enable UWP app scanning |
+
+### Safety
+
+| Variable | Default | Description |
+|---|---|---|
+| `TOOL_CALL_CONFIRM_HIGH` | `true` | Confirm high-risk tool operations |
+| `AUDIT_LOG_ENABLED` | `true` | Log all tool calls to audit file |
+| `AUDIT_LOG_PATH` | `logs/audit.log` | Path to audit log file |
+| `PROTECTED_PATHS` | `.env,.git,.gitignore,*.key,*.pem,*.env` | Files/patterns blocked from write/delete |
 
 ### Persona
 

@@ -1,6 +1,8 @@
+import os
 import time
 import logging
 from concurrent.futures import ThreadPoolExecutor
+from typing import Iterator
 
 from config.settings import settings
 from models.actions import Action
@@ -57,6 +59,10 @@ from memory.memory_retrieval_service import (
 from planner.execution_planner import ExecutionPlanner
 from planner.plan_executor import PlanExecutor
 
+from brain.orchestrator import Orchestrator
+
+from agents.agent_registry import AgentRegistry, DEFAULT_AGENT_ID, PERSONAS_DIR
+
 
 logging.basicConfig(
     level=getattr(logging, settings.log_level.upper(), logging.DEBUG),
@@ -68,6 +74,11 @@ logger = logging.getLogger(__name__)
 class AikaBrain:
 
     def __init__(self):
+
+        # Agent Registry
+        self.agent_registry = AgentRegistry()
+        self.agent_registry.load_personas_from_dir()
+        self.current_agent_id = DEFAULT_AGENT_ID
 
         # Core Services
         self.llm = OllamaClient()
@@ -189,7 +200,8 @@ class AikaBrain:
         
         self.tool_handler = ToolHandler(
             self.tool_manager,
-            self.tool_response_handler
+            self.tool_response_handler,
+            agent_registry=self.agent_registry
         )
 
         # Execution Planner
@@ -218,7 +230,9 @@ class AikaBrain:
         )
 
         # Session
-        self.current_session = self.session_repo.create()
+        self.current_session = self.session_repo.create(
+            agent_id=self.current_agent_id
+        )
 
         # Chat Handler
         self.chat_handler = ChatHandler(
@@ -230,11 +244,14 @@ class AikaBrain:
             session_id=self.current_session.id,
             embedding_service=self.embedding_service,
             session_repo=self.session_repo,
-            model_router=self.model_router
+            model_router=self.model_router,
+            agent_registry=self.agent_registry
         )
 
         # Config Handler
-        self.config_handler = ConfigHandler()
+        self.config_handler = ConfigHandler(
+            agent_registry=self.agent_registry
+        )
 
         # Router
         self.router = Router(
@@ -256,11 +273,24 @@ class AikaBrain:
             self.llm,
             tool_manager=self.tool_manager,
             llm_tool_router=self.llm_tool_router,
-            model_router=self.model_router
+            model_router=self.model_router,
+            agent_registry=self.agent_registry
         )
 
+        # Orchestrator
+        self.orchestrator = Orchestrator(
+            self.agent_registry,
+            self.agent_loop,
+            llm=self.llm,
+            max_workers=4
+        )
+
+        # Wire orchestrator to router and agent loop
+        self.router.orchestrator = self.orchestrator
+        self.agent_loop._orchestrator = self.orchestrator
+
         self._executor = ThreadPoolExecutor(
-            max_workers=2,
+            max_workers=4,
             thread_name_prefix="aika"
         )
 
@@ -285,7 +315,9 @@ class AikaBrain:
         self._executor.submit(
             self._generate_session_summary, old_session_id
         )
-        self.current_session = self.session_repo.create()
+        self.current_session = self.session_repo.create(
+            agent_id=self.current_agent_id
+        )
         self.chat_handler.session_id = self.current_session.id
         return "New conversation started."
 
@@ -338,7 +370,9 @@ class AikaBrain:
         was_current = session.id == self.current_session.id
         self.session_repo.delete(session.id)
         if was_current:
-            self.current_session = self.session_repo.create()
+            self.current_session = self.session_repo.create(
+                agent_id=self.current_agent_id
+            )
             self.chat_handler.session_id = self.current_session.id
             return (
                 f"Deleted current session `{session.id}`. "
@@ -346,9 +380,273 @@ class AikaBrain:
             )
         return f"Deleted session `{session.id}`."
 
+    def _handle_list_agents(self):
+        agents = self.agent_registry.get_all()
+        if not agents:
+            return "No agents registered."
+        lines = ["**Agents:**"]
+        for a in agents:
+            marker = " *" if a.id == self.current_agent_id else "  "
+            status = "active" if a.is_active else "inactive"
+            model_str = f"model={a.model}" if a.model else "model=default"
+            tools_str = "tools=all" if not a.allowed_tools else f"tools={len(a.allowed_tools)}"
+            lines.append(
+                f"{marker} `{a.id}` — {a.name} [{status}] {model_str}, {tools_str}"
+            )
+        lines.append("\nUse `use <agent_id>` to switch agents.")
+        return "\n".join(lines)
+
+    def _handle_use_agent(self, user_message):
+        agent_id = user_message[len("use "):].strip()
+        profile = self.agent_registry.get(agent_id)
+        if not profile:
+            available = ", ".join(a.id for a in self.agent_registry.get_all())
+            return f"Agent '{agent_id}' not found. Available: {available}"
+        if not profile.is_active:
+            return f"Agent '{agent_id}' is inactive."
+        self.current_agent_id = agent_id
+        self.current_session = self.session_repo.create(agent_id=agent_id)
+        self.chat_handler.session_id = self.current_session.id
+        return f"Switched to agent `{agent_id}` ({profile.name}). New session `{self.current_session.id}` started."
+
+    def _handle_create_agent(self, user_message):
+        parts = user_message[len("create agent "):].strip().split(None, 1)
+        if len(parts) < 2:
+            return "Usage: create agent <id> <name> [model=<model>]"
+        agent_id = parts[0]
+        rest = parts[1]
+        model = None
+        if " model=" in rest.lower():
+            idx = rest.lower().index(" model=")
+            name = rest[:idx].strip()
+            model_str = rest[idx + 7:].strip()
+            model = model_str if model_str else None
+        else:
+            name = rest
+        if model:
+            available = self.llm.list_models()
+            if available and model not in available:
+                return f"Model '{model}' not found locally. Available: {', '.join(available)}"
+        profile = self.agent_registry.create_agent(agent_id, name, model=model)
+        if not profile:
+            return f"Agent '{agent_id}' already exists."
+        model_msg = f" model={model}" if model else ""
+        return f"Created agent `{agent_id}` ({name}{model_msg}). Use `use {agent_id}` to switch."
+
+    def _handle_set_agent_tools(self, user_message):
+        parts = user_message[len("set agent tools "):].strip().split(None, 1)
+        if len(parts) < 2:
+            return "Usage: set agent tools <agent_id> <tool1,tool2,...> or 'all'"
+        agent_id = parts[0]
+        tools_str = parts[1].strip()
+        profile = self.agent_registry.get(agent_id)
+        if not profile:
+            return f"Agent '{agent_id}' not found."
+        if tools_str.lower() == "all":
+            profile.allowed_tools = None
+        else:
+            tool_names = [t.strip() for t in tools_str.split(",")]
+            invalid = [t for t in tool_names if t not in self.tool_manager.tools]
+            if invalid:
+                available = ", ".join(sorted(self.tool_manager.tools.keys()))
+                return f"Unknown tools: {', '.join(invalid)}. Available: {available}"
+            profile.allowed_tools = tool_names
+        self.agent_registry.register(profile)
+        count = len(profile.allowed_tools) if profile.allowed_tools else "all"
+        return f"Agent '{agent_id}' tools updated: {count} tools."
+
+    def _handle_show_agent_tools(self, user_message):
+        agent_id = user_message[len("show agent tools "):].strip()
+        profile = self.agent_registry.get(agent_id)
+        if not profile:
+            return f"Agent '{agent_id}' not found."
+        if not profile.allowed_tools:
+            return f"Agent '{agent_id}' has access to ALL tools."
+        return (
+            f"Agent '{agent_id}' allowed tools:\n"
+            + "\n".join(f"  - {t}" for t in profile.allowed_tools)
+        )
+
+    def _handle_set_agent_model(self, user_message):
+        parts = user_message[len("set agent model "):].strip().split(None, 1)
+        if len(parts) < 2:
+            return "Usage: set agent model <agent_id> <model_name>"
+        agent_id = parts[0]
+        model_name = parts[1].strip()
+        profile = self.agent_registry.get(agent_id)
+        if not profile:
+            return f"Agent '{agent_id}' not found."
+        available = self.llm.list_models()
+        if available and model_name not in available:
+            return f"Model '{model_name}' not found locally. Available: {', '.join(available)}"
+        self.agent_registry.set_model(agent_id, model_name)
+        return f"Agent '{agent_id}' model set to `{model_name}`."
+
+    def _handle_show_agent_model(self, user_message):
+        agent_id = user_message[len("show agent model "):].strip()
+        profile = self.agent_registry.get(agent_id)
+        if not profile:
+            return f"Agent '{agent_id}' not found."
+        model = profile.model or f"(default: {settings.chat_model})"
+        return f"Agent '{agent_id}' model: {model}"
+
+    def _handle_set_agent_persona(self, user_message):
+        parts = user_message[len("set agent persona "):].strip().split(None, 1)
+        if len(parts) < 2:
+            return "Usage: set agent persona <agent_id> <persona_text>"
+        agent_id = parts[0]
+        persona_text = parts[1].strip()
+        profile = self.agent_registry.get(agent_id)
+        if not profile:
+            return f"Agent '{agent_id}' not found."
+        os.makedirs(PERSONAS_DIR, exist_ok=True)
+        persona_path = os.path.join(PERSONAS_DIR, f"{agent_id}.txt")
+        try:
+            with open(persona_path, "w", encoding="utf-8") as f:
+                f.write(persona_text)
+        except Exception as e:
+            return f"Failed to write persona file: {e}"
+        self.agent_registry.set_persona(agent_id, persona_path)
+        return f"Agent '{agent_id}' persona updated. File: {persona_path}"
+
+    def _handle_show_agent_persona(self, user_message):
+        agent_id = user_message[len("show agent persona "):].strip()
+        profile = self.agent_registry.get(agent_id)
+        if not profile:
+            return f"Agent '{agent_id}' not found."
+        if not profile.persona_path:
+            return f"Agent '{agent_id}' has no persona file set."
+        if not os.path.exists(profile.persona_path):
+            return f"Agent '{agent_id}' persona file not found: {profile.persona_path}"
+        try:
+            with open(profile.persona_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            return (
+                f"Agent '{agent_id}' persona ({profile.persona_path}):\n"
+                f"---\n{content}\n---"
+            )
+        except Exception as e:
+            return f"Failed to read persona file: {e}"
+
+    def _handle_list_models(self):
+        models = self.llm.list_models()
+        if not models:
+            return "No Ollama models found locally."
+        return "Available Ollama models:\n" + "\n".join(f"  - {m}" for m in models)
+
+    def _handle_delegate(self, user_message):
+        parts = user_message[len("delegate "):].strip().split(None, 1)
+        if len(parts) < 2:
+            return "Usage: delegate <agent_id> <task>"
+        target_agent = parts[0]
+        task = parts[1]
+        result = self.orchestrator.delegate(self.current_agent_id, task, target_agent)
+        return result
+
+    def _handle_chain(self, user_message):
+        parts = user_message[len("chain "):].strip().split(None, 1)
+        if len(parts) < 2:
+            return "Usage: chain <agent1>,<agent2> ... <task>"
+        agent_list_str = parts[0]
+        task = parts[1]
+        agent_ids = [a.strip() for a in agent_list_str.split(",")]
+        result = self.orchestrator.run_chain(agent_ids, task)
+        return result
+
+    def _handle_team(self, user_message):
+        parts = user_message[len("team "):].strip().split(None, 1)
+        if len(parts) < 2:
+            return "Usage: team <agent1>,<agent2> ... <task>"
+        agent_list_str = parts[0]
+        task = parts[1]
+        agent_ids = [a.strip() for a in agent_list_str.split(",")]
+        result = self.orchestrator.run_team(agent_ids, task)
+        return result
+
+    def _handle_agents_status(self):
+        teams = self.orchestrator.get_team_status()
+        if not teams:
+            return "No active teams."
+        lines = ["**Agent Teams:**"]
+        for team_id, info in teams.items():
+            lines.append(f"  `{team_id}`: {info['status']} | {info['turns']} turns | agents: {', '.join(info['agents'])}")
+        return "\n".join(lines)
+
     def process(self, user_message):
 
         t0 = time.time()
+
+        cmd = user_message.lower().strip()
+
+        if cmd == "list agents":
+            response = self._handle_list_agents()
+            logger.debug("Route: LIST_AGENTS (%.2fs)", time.time() - t0)
+            return response
+
+        if cmd.startswith("use "):
+            response = self._handle_use_agent(cmd)
+            logger.debug("Route: USE_AGENT (%.2fs)", time.time() - t0)
+            return response
+
+        if cmd.startswith("create agent "):
+            response = self._handle_create_agent(cmd)
+            logger.debug("Route: CREATE_AGENT (%.2fs)", time.time() - t0)
+            return response
+
+        if cmd.startswith("set agent tools "):
+            response = self._handle_set_agent_tools(cmd)
+            logger.debug("Route: SET_AGENT_TOOLS (%.2fs)", time.time() - t0)
+            return response
+
+        if cmd.startswith("show agent tools "):
+            response = self._handle_show_agent_tools(cmd)
+            logger.debug("Route: SHOW_AGENT_TOOLS (%.2fs)", time.time() - t0)
+            return response
+
+        if cmd.startswith("set agent model "):
+            response = self._handle_set_agent_model(cmd)
+            logger.debug("Route: SET_AGENT_MODEL (%.2fs)", time.time() - t0)
+            return response
+
+        if cmd.startswith("show agent model "):
+            response = self._handle_show_agent_model(cmd)
+            logger.debug("Route: SHOW_AGENT_MODEL (%.2fs)", time.time() - t0)
+            return response
+
+        if cmd.startswith("set agent persona "):
+            response = self._handle_set_agent_persona(cmd)
+            logger.debug("Route: SET_AGENT_PERSONA (%.2fs)", time.time() - t0)
+            return response
+
+        if cmd.startswith("show agent persona "):
+            response = self._handle_show_agent_persona(cmd)
+            logger.debug("Route: SHOW_AGENT_PERSONA (%.2fs)", time.time() - t0)
+            return response
+
+        if cmd == "list models":
+            response = self._handle_list_models()
+            logger.debug("Route: LIST_MODELS (%.2fs)", time.time() - t0)
+            return response
+
+        if cmd.startswith("delegate "):
+            response = self._handle_delegate(cmd)
+            logger.debug("Route: DELEGATE (%.2fs)", time.time() - t0)
+            return response
+
+        if cmd.startswith("chain "):
+            response = self._handle_chain(cmd)
+            logger.debug("Route: CHAIN (%.2fs)", time.time() - t0)
+            return response
+
+        if cmd.startswith("team "):
+            response = self._handle_team(cmd)
+            logger.debug("Route: TEAM (%.2fs)", time.time() - t0)
+            return response
+
+        if cmd == "agents status":
+            response = self._handle_agents_status()
+            logger.debug("Route: AGENTS_STATUS (%.2fs)", time.time() - t0)
+            return response
 
         decision = self.decision_engine.decide(user_message)
 
@@ -371,23 +669,27 @@ class AikaBrain:
             user_embedding = None
             try:
                 user_embedding = self.embedding_service.generate_embedding(user_message)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed to generate user embedding: %s", e)
 
             user_conv = self.conversation_repo.create(
                 role="user",
                 content=user_message,
                 session_id=self.current_session.id,
                 embedding=user_embedding,
+                agent_id=self.current_agent_id,
             )
 
-            response = self.agent_loop.run(user_message)
+            response = self.agent_loop.run(
+                user_message,
+                agent_id=self.current_agent_id
+            )
 
             response_embedding = None
             try:
                 response_embedding = self.embedding_service.generate_embedding(response)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed to generate response embedding: %s", e)
 
             self.conversation_repo.create(
                 role="assistant",
@@ -395,6 +697,7 @@ class AikaBrain:
                 session_id=self.current_session.id,
                 embedding=response_embedding,
                 model_used=settings.chat_model,
+                agent_id=self.current_agent_id,
             )
 
             self.session_repo.increment_message_count(self.current_session.id, 2)
@@ -411,8 +714,151 @@ class AikaBrain:
         self._executor.submit(
             self.chat_handler.memory_extractor.extract_memory,
             user_message,
-            source_conversation_id=getattr(self, '_last_user_conv_id', None)
+            source_conversation_id=getattr(self, '_last_user_conv_id', None),
+            agent_id=self.current_agent_id
         )
         logger.debug("Memory extraction -> background")
 
         return response
+
+    def process_stream(self, user_message) -> Iterator[str]:
+
+        t0 = time.time()
+
+        cmd = user_message.lower().strip()
+
+        if cmd == "list agents":
+            yield self._handle_list_agents()
+            return
+
+        if cmd.startswith("use "):
+            yield self._handle_use_agent(cmd)
+            return
+
+        if cmd.startswith("create agent "):
+            yield self._handle_create_agent(cmd)
+            return
+
+        if cmd.startswith("set agent tools "):
+            yield self._handle_set_agent_tools(cmd)
+            return
+
+        if cmd.startswith("show agent tools "):
+            yield self._handle_show_agent_tools(cmd)
+            return
+
+        if cmd.startswith("set agent model "):
+            yield self._handle_set_agent_model(cmd)
+            return
+
+        if cmd.startswith("show agent model "):
+            yield self._handle_show_agent_model(cmd)
+            return
+
+        if cmd.startswith("set agent persona "):
+            yield self._handle_set_agent_persona(cmd)
+            return
+
+        if cmd.startswith("show agent persona "):
+            yield self._handle_show_agent_persona(cmd)
+            return
+
+        if cmd == "list models":
+            yield self._handle_list_models()
+            return
+
+        if cmd.startswith("delegate "):
+            yield self._handle_delegate(cmd)
+            return
+
+        if cmd.startswith("chain "):
+            yield self._handle_chain(cmd)
+            return
+
+        if cmd.startswith("team "):
+            yield self._handle_team(cmd)
+            return
+
+        if cmd == "agents status":
+            yield self._handle_agents_status()
+            return
+
+        decision = self.decision_engine.decide(user_message)
+
+        if decision == Action.NEW_SESSION:
+            yield self._handle_new_session()
+            logger.debug("Route: NEW_SESSION (%.2fs)", time.time() - t0)
+            return
+        elif decision == Action.LIST_SESSIONS:
+            yield self._handle_list_sessions()
+            logger.debug("Route: LIST_SESSIONS (%.2fs)", time.time() - t0)
+            return
+        elif decision == Action.RESUME_SESSION:
+            yield self._handle_resume_session(user_message)
+            logger.debug("Route: RESUME_SESSION (%.2fs)", time.time() - t0)
+            return
+        elif decision == Action.DELETE_SESSION:
+            yield self._handle_delete_session(user_message)
+            logger.debug("Route: DELETE_SESSION (%.2fs)", time.time() - t0)
+            return
+        elif decision == Action.CONFIGURE:
+            yield self.config_handler.handle(user_message)
+            logger.debug("Route: CONFIGURE (%.2fs)", time.time() - t0)
+            return
+
+        user_embedding = None
+        try:
+            user_embedding = self.embedding_service.generate_embedding(user_message)
+        except Exception as e:
+            logger.warning("Failed to generate user embedding: %s", e)
+
+        self.conversation_repo.create(
+            role="user",
+            content=user_message,
+            session_id=self.current_session.id,
+            embedding=user_embedding,
+            agent_id=self.current_agent_id,
+        )
+
+        response_chunks = []
+        for chunk in self.agent_loop.run_stream(
+            user_message,
+            agent_id=self.current_agent_id
+        ):
+            response_chunks.append(chunk)
+            yield chunk
+
+        response = "".join(response_chunks)
+
+        response_embedding = None
+        try:
+            response_embedding = self.embedding_service.generate_embedding(response)
+        except Exception as e:
+            logger.warning("Failed to generate response embedding: %s", e)
+
+        self.conversation_repo.create(
+            role="assistant",
+            content=response,
+            session_id=self.current_session.id,
+            embedding=response_embedding,
+            model_used=settings.chat_model,
+            agent_id=self.current_agent_id,
+        )
+
+        self.session_repo.increment_message_count(self.current_session.id, 2)
+        self.session_repo.update_last_active(self.current_session.id)
+        self.conversation_repo.trim()
+
+        logger.debug("Route: AGENT_LOOP (%.2fs)", time.time() - t0)
+
+        total = time.time() - t0
+        logger.debug("%s", "-" * 45)
+        logger.debug("Decision: %s | Total: %.2fs", decision.value, total)
+
+        self._executor.submit(
+            self.chat_handler.memory_extractor.extract_memory,
+            user_message,
+            source_conversation_id=getattr(self, '_last_user_conv_id', None),
+            agent_id=self.current_agent_id
+        )
+        logger.debug("Memory extraction -> background")

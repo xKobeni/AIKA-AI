@@ -1,6 +1,6 @@
 from database.base import Base
 from database.db import engine
-from database.models import Memory, Conversation, Session
+from database.models import Memory, Conversation, Session, Agent
 
 Base.metadata.create_all(
     bind=engine

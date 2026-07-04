@@ -66,6 +66,24 @@ class ShellTool(BaseTool):
                     "error": f"Command blocked: contains '{keyword}'"
                 }
 
+        extra_blocked = [
+            "rmdir /s", "remove-item -recurse", "remove-item -force",
+            "del /f /q", "rm -r -f", "rm  -rf",
+            "cmd /c del", "cmd /c format",
+            "bcdedit", "diskpart", "bootcfg",
+            "net user", "net localgroup administrators",
+            "reg add", "reg delete",
+            "attrib -r -s -h",
+            "icacls", "takeown",
+        ]
+        for pattern in extra_blocked:
+            if pattern in text:
+                logger.warning("Blocked command pattern: %s", pattern)
+                return {
+                    "success": False,
+                    "error": f"Command blocked: matches restricted pattern"
+                }
+
         logger.info("Shell: %s", command)
 
         try:

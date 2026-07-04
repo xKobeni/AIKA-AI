@@ -37,7 +37,8 @@ class ContextManager:
     def build_context(
         self,
         user_message,
-        session_id=None
+        session_id=None,
+        agent_id=None
     ):
 
         t0 = time.time()
@@ -52,7 +53,8 @@ class ContextManager:
 
             result = self.retrieval_service.retrieve(
                 user_message,
-                limit=self.retrieval_limit
+                limit=self.retrieval_limit,
+                agent_id=agent_id
             )
 
             if isinstance(result, str):
@@ -71,7 +73,8 @@ class ContextManager:
                 self.memory_repo
                 .semantic_search(
                     query_embedding,
-                    limit=self.retrieval_limit + 2
+                    limit=self.retrieval_limit + 2,
+                    agent_id=agent_id
                 )
             )
 
@@ -105,7 +108,7 @@ class ContextManager:
 
             profile_text = (
                 self.retrieval_service.profile_builder
-                .build_profile(max_per_category=settings.max_profile_per_category)
+                .build_profile(max_per_category=settings.max_profile_per_category, agent_id=agent_id)
             )
 
             if profile_text:
@@ -150,7 +153,8 @@ class ContextManager:
 
             past_sessions = self.session_repo.get_recent_with_summaries(
                 limit=self.summaries_count,
-                exclude_session_id=session_id
+                exclude_session_id=session_id,
+                agent_id=agent_id
             )
 
             if past_sessions:
@@ -189,7 +193,8 @@ class ContextManager:
                     .search_across_sessions(
                         query_embedding,
                         current_session_id=session_id,
-                        limit=self.cross_session_count
+                        limit=self.cross_session_count,
+                        agent_id=agent_id
                     )
                 )
 
@@ -244,12 +249,12 @@ class ContextManager:
         if session_id:
             conversations = (
                 self.conversation_repo
-                .get_by_session(session_id, self.recent_count)
+                .get_by_session(session_id, self.recent_count, agent_id=agent_id)
             )
         else:
             conversations = (
                 self.conversation_repo
-                .get_recent(self.recent_count)
+                .get_recent(self.recent_count, agent_id=agent_id)
             )
 
         conversation_context = "\n".join([

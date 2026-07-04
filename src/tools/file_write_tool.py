@@ -36,6 +36,16 @@ class FileWriteTool(BaseTool):
             }
         }
 
+    def _is_protected_path(self, file_path):
+        from config.settings import settings
+        import fnmatch
+        path_lower = file_path.lower()
+        for protected in settings.protected_paths:
+            protected = protected.strip().lower()
+            if protected and (protected in path_lower or fnmatch.fnmatch(path_lower, protected)):
+                return True
+        return False
+
     def execute(self, file_path, content, root_path=None):
 
         if not settings.file_write_enabled:
@@ -44,10 +54,22 @@ class FileWriteTool(BaseTool):
                 "error": "File write is disabled"
             }
 
+        if self._is_protected_path(file_path):
+            return {
+                "success": False,
+                "error": f"Cannot write to protected path: {file_path}"
+            }
+
         if not content and content != "":
             return {
                 "success": False,
                 "error": "No content provided"
+            }
+
+        if len(content) > 1_000_000:
+            return {
+                "success": False,
+                "error": f"Content too large ({len(content)} chars). Maximum is 1MB."
             }
 
         if root_path is None:

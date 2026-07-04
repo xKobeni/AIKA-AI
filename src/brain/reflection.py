@@ -3,21 +3,9 @@ import logging
 import ollama
 
 from config.settings import settings
+from brain.common import FAIL_PHRASES
 
 logger = logging.getLogger(__name__)
-
-
-FAIL_PHRASES = [
-    "no search results",
-    "no results found",
-    "error",
-    "failed",
-    "couldn't find",
-    "not available",
-    "not found",
-    "no content",
-    "no matches",
-]
 
 
 class ReflectionEngine:

@@ -18,6 +18,17 @@ class LLMToolRouter:
         "You are an AI assistant with access to tools. "
         "Analyze the user's request and decide what to do.\n\n"
         "RULES:\n"
+        "- If a tool is needed to fulfill the request, use the appropriate tool.\n"
+        "- If no tool is needed (general conversation, greeting, opinion, etc), "
+        "respond directly with a conversational answer.\n"
+        "- Do NOT repeat actions already taken.\n"
+        "- If the task is complete, respond directly with your answer.\n"
+    )
+
+    LEGACY_SYSTEM_PROMPT = (
+        "You are an AI assistant with access to tools. "
+        "Analyze the user's request and decide what to do.\n\n"
+        "RULES:\n"
         "- If a tool is needed to fulfill the request, respond with ONLY a JSON object:\n"
         '  {"tool": "<tool_name>", "parameters": {"<param>": "<value>"}}\n'
         "- If no tool is needed (general conversation, greeting, opinion, etc), "
@@ -37,10 +48,17 @@ class LLMToolRouter:
         self.model = settings.chat_model
         self._last_prompt_hash = None
         self._last_result = None
+        self.native_tool_calling = getattr(settings, 'native_tool_calling', True)
 
     def decide_and_route(self, user_message, context_history=None):
         t0 = time.time()
 
+        if self.native_tool_calling:
+            return self._decide_native(user_message, context_history, t0)
+        return self._decide_legacy(user_message, context_history, t0)
+
+    def _decide_native(self, user_message, context_history, t0):
+        native_tools = self.tool_manager.get_native_tool_schemas()
         prompt = self._build_prompt(user_message, context_history)
 
         try:
@@ -48,6 +66,42 @@ class LLMToolRouter:
                 model=self.model,
                 messages=[
                     {"role": "system", "content": self.SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt}
+                ],
+                tools=native_tools
+            )
+        except Exception as e:
+            logger.warning("LLM tool routing failed: %s", e)
+            return Action.CHAT, None, ""
+
+        content = response["message"].get("content", "").strip()
+        tool_calls = response["message"].get("tool_calls", [])
+
+        if tool_calls:
+            tc = tool_calls[0]
+            func = tc.get("function", {})
+            tool_name = func.get("name", "")
+            params = dict(func.get("arguments", {}))
+
+            if tool_name not in self.tool_manager.tools:
+                logger.warning("Native tool call for unknown tool: %s", tool_name)
+                return Action.CHAT, None, content
+
+            tool_request = ToolRequest(tool_name=tool_name, parameters=params)
+            logger.debug("Tool call (native): %s (%.2fs)", tool_name, time.time() - t0)
+            return Action.USE_TOOL, tool_request, ""
+
+        logger.debug("No tool call, returning CHAT (%.2fs)", time.time() - t0)
+        return Action.CHAT, None, content
+
+    def _decide_legacy(self, user_message, context_history, t0):
+        prompt = self._build_prompt(user_message, context_history)
+
+        try:
+            response = ollama.chat(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": self.LEGACY_SYSTEM_PROMPT},
                     {"role": "user", "content": prompt}
                 ]
             )
@@ -84,12 +138,15 @@ class LLMToolRouter:
         return Action.USE_TOOL, tool_request, ""
 
     def _build_prompt(self, user_message, context_history=None):
-        schemas = self.tool_manager.get_schemas_json()
+        if self.native_tool_calling:
+            schemas = ""
+        else:
+            schemas = self.tool_manager.get_schemas_json()
 
-        parts = [
-            f"Available tools:\n{schemas}",
-            "",
-        ]
+        parts = []
+        if schemas:
+            parts.append(f"Available tools:\n{schemas}")
+            parts.append("")
 
         if context_history:
             parts.append("Previous actions this session:")
@@ -101,7 +158,7 @@ class LLMToolRouter:
                     f"\n     Result: {result_preview}"
                 )
             parts.append("")
-            parts.append("Do NOT repeat actions already taken above. If the task is complete, respond with {\"tool\": null, \"response\": \"...\"}")
+            parts.append("Do NOT repeat actions already taken above. If the task is complete, respond directly.")
             parts.append("")
 
         parts.append(f"User request: {user_message}")

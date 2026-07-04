@@ -11,14 +11,14 @@ logger = logging.getLogger(__name__)
 
 class SessionRepository:
 
-    def create(self):
+    def create(self, agent_id=None):
         session_id = uuid.uuid4().hex[:12]
         with db_session() as db:
-            session = Session(id=session_id)
+            session = Session(id=session_id, agent_id=agent_id)
             db.add(session)
             db.flush()
             db.refresh(session)
-            logger.info("Session created: %s", session_id)
+            logger.info("Session created: %s (agent: %s)", session_id, agent_id)
             return session
 
     def get(self, session_id):
@@ -60,15 +60,16 @@ class SessionRepository:
                 .all()
             )
 
-    def get_all_sessions(self):
+    def get_all_sessions(self, agent_id=None):
         with db_session() as db:
-            return (
-                db.query(Session)
-                .order_by(Session.last_active.desc())
-                .all()
-            )
+            query = db.query(Session).order_by(Session.last_active.desc())
+            if agent_id:
+                query = query.filter(
+                    (Session.agent_id == agent_id) | (Session.agent_id.is_(None))
+                )
+            return query.all()
 
-    def get_recent_with_summaries(self, limit=5, exclude_session_id=None):
+    def get_recent_with_summaries(self, limit=5, exclude_session_id=None, agent_id=None):
         with db_session() as db:
             query = (
                 db.query(Session)
@@ -77,6 +78,10 @@ class SessionRepository:
             )
             if exclude_session_id:
                 query = query.filter(Session.id != exclude_session_id)
+            if agent_id:
+                query = query.filter(
+                    (Session.agent_id == agent_id) | (Session.agent_id.is_(None))
+                )
             return (
                 query
                 .order_by(Session.last_active.desc())

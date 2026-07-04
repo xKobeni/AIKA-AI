@@ -63,9 +63,7 @@ class MemoryExtractor:
     def __init__(
         self,
         memory_repo,
-        embedding_service,
-        llm=None,
-        memory_validator=None
+        embedding_service
     ):
         self.memory_repo = memory_repo
         self.embedding_service = embedding_service
@@ -73,14 +71,14 @@ class MemoryExtractor:
         self.dedup_threshold = settings.memory_dedup_threshold
         self.max_per_message = settings.memory_extraction_max_per_message
 
-    def _is_duplicate(self, content, category):
+    def _is_duplicate(self, content, category, agent_id=None):
         try:
             embedding = self.embedding_service.generate_embedding(content)
             if embedding is None:
                 return False
 
             existing = self.memory_repo.semantic_search(
-                embedding, limit=1
+                embedding, limit=1, agent_id=agent_id
             )
 
             if existing and len(existing) > 0:
@@ -97,7 +95,7 @@ class MemoryExtractor:
 
         return False
 
-    def extract_memory(self, user_message, source_conversation_id=None):
+    def extract_memory(self, user_message, source_conversation_id=None, agent_id=None):
 
         text = f" {user_message.lower().strip()} "
         extracted = []
@@ -117,7 +115,7 @@ class MemoryExtractor:
                     if len(content) < 3:
                         continue
 
-                    if self._is_duplicate(content, category):
+                    if self._is_duplicate(content, category, agent_id=agent_id):
                         continue
 
                     full_content = f"User {category}: {content}"
@@ -143,7 +141,8 @@ class MemoryExtractor:
                         embedding=embedding,
                         category=category,
                         importance=importance,
-                        source_conversation_id=source_conversation_id
+                        source_conversation_id=source_conversation_id,
+                        agent_id=agent_id
                     )
 
                     extracted.append({

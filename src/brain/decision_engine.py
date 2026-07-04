@@ -131,6 +131,32 @@ class DecisionEngine:
             return Action.USE_TOOL
 
         # ============================
+        # DELEGATION DETECTION
+        # ============================
+
+        delegation_patterns = [
+            "have the ", "ask the ", "delegate to ",
+            "let the ", "get the ", "tell the "
+        ]
+
+        if any(text.startswith(p) for p in delegation_patterns):
+            logger.debug("-> DELEGATE")
+            return Action.DELEGATE
+
+        # ============================
+        # ORCHESTRATION DETECTION
+        # ============================
+
+        orchestration_patterns = [
+            "chain ", "team ", "parallel ",
+            "run all ", "use all agents"
+        ]
+
+        if any(text.startswith(p) for p in orchestration_patterns):
+            logger.debug("-> ORCHESTRATE")
+            return Action.ORCHESTRATE
+
+        # ============================
         # PLAN EXECUTION (multi-step)
         # ============================
 

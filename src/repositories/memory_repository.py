@@ -10,7 +10,8 @@ from config.settings import settings
 class MemoryRepository:
 
     def create(self, memory_type, content, embedding, category="fact",
-               importance=5, profile_score=0, source_conversation_id=None):
+               importance=5, profile_score=0, source_conversation_id=None,
+               agent_id=None):
 
         with db_session() as db:
 
@@ -21,7 +22,8 @@ class MemoryRepository:
                 category=category,
                 importance=importance,
                 profile_score=profile_score,
-                source_conversation_id=source_conversation_id
+                source_conversation_id=source_conversation_id,
+                agent_id=agent_id
             )
 
             db.add(memory)
@@ -31,60 +33,54 @@ class MemoryRepository:
             return memory
     
     # Get memories by category
-    def get_by_category(self, category):
+    def get_by_category(self, category, agent_id=None):
 
         with db_session() as db:
 
-            memories = (
-                db.query(Memory)
-                .filter(Memory.category == category)
-                .all()
-            )
+            query = db.query(Memory).filter(Memory.category == category)
+            if agent_id:
+                query = query.filter(
+                    (Memory.agent_id == agent_id) | (Memory.agent_id.is_(None))
+                )
+            return query.all()
 
-            return memories
-
-    def get_by_categories(self, categories):
+    def get_by_categories(self, categories, agent_id=None):
 
         with db_session() as db:
 
-            memories = (
-                db.query(Memory)
-                .filter(Memory.category.in_(categories))
-                .all()
-            )
-
-            return memories
+            query = db.query(Memory).filter(Memory.category.in_(categories))
+            if agent_id:
+                query = query.filter(
+                    (Memory.agent_id == agent_id) | (Memory.agent_id.is_(None))
+                )
+            return query.all()
 
     # Memory retrieval methods
-    def get_all(self):
+    def get_all(self, agent_id=None):
 
         with db_session() as db:
 
-            memories = (
-                db.query(Memory)
-                .order_by(Memory.id)
-                .all()
-            )
-
-            return memories
+            query = db.query(Memory).order_by(Memory.id)
+            if agent_id:
+                query = query.filter(
+                    (Memory.agent_id == agent_id) | (Memory.agent_id.is_(None))
+                )
+            return query.all()
 
 
     # Search memories by content
-    def search(self, query):
+    def search(self, query, agent_id=None):
 
         with db_session() as db:
 
-            memories = (
-                db.query(Memory)
-                .filter(
-                    Memory.content.ilike(
-                        f"%{query}%"
-                    )
-                )
-                .all()
+            q = db.query(Memory).filter(
+                Memory.content.ilike(f"%{query}%")
             )
-
-            return memories
+            if agent_id:
+                q = q.filter(
+                    (Memory.agent_id == agent_id) | (Memory.agent_id.is_(None))
+                )
+            return q.all()
 
     # Delete a memory by ID
     def delete(self, memory_id):
@@ -128,7 +124,8 @@ class MemoryRepository:
         self,
         query_embedding,
         limit=None,
-        min_score=None
+        min_score=None,
+        agent_id=None
     ):
 
         if limit is None:
@@ -140,9 +137,17 @@ class MemoryRepository:
 
             candidate_limit = limit * settings.memory_candidate_multiplier
 
-            candidates = (
+            query = (
                 db.query(Memory)
                 .filter(Memory.embedding.isnot(None))
+            )
+            if agent_id:
+                query = query.filter(
+                    (Memory.agent_id == agent_id) | (Memory.agent_id.is_(None))
+                )
+
+            candidates = (
+                query
                 .order_by(Memory.embedding.cosine_distance(query_embedding))
                 .limit(candidate_limit)
                 .all()

@@ -27,6 +27,9 @@ CATEGORIES = {
 
 class ConfigHandler:
 
+    def __init__(self, agent_registry=None):
+        self.agent_registry = agent_registry
+
     def handle(self, user_message: str):
 
         text = user_message.strip()
@@ -141,7 +144,10 @@ class ConfigHandler:
 
     def _save(self):
 
-        path = ".env"
+        path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+            ".env"
+        )
         keys = [k for k in vars(settings).keys() if not k.startswith("_")]
 
         env_key_map = {}
@@ -313,6 +319,9 @@ class ConfigHandler:
 
         for handler in root_logger.handlers:
             handler.setLevel(getattr(logging, settings.log_level))
+
+        logging.getLogger("httpx").setLevel(getattr(logging, settings.log_level))
+        logging.getLogger("httpcore").setLevel(getattr(logging, settings.log_level))
 
         logger.info("Log level changed: %s -> %s", old, settings.log_level)
 

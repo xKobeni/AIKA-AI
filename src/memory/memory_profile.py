@@ -9,12 +9,13 @@ class MemoryProfileBuilder:
 
         self.memory_repo = memory_repo
 
-    def build_profile(self, max_per_category=None):
+    def build_profile(self, max_per_category=None, agent_id=None):
         if max_per_category is None:
             max_per_category = 3
 
         all_memories = self.memory_repo.get_by_categories(
-            self.PREFERRED_CATEGORIES
+            self.PREFERRED_CATEGORIES,
+            agent_id=agent_id
         )
 
         categories = {}

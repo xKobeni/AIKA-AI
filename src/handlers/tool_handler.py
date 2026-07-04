@@ -6,20 +6,30 @@ class ToolHandler:
     def __init__(
         self, 
         tool_manager,
-        tool_response_handler
+        tool_response_handler,
+        agent_registry=None
     ):
         self.tool_manager = tool_manager
         self.tool_response_handler = tool_response_handler
+        self.agent_registry = agent_registry
         self.crawl_max_chars = settings.crawl_content_max_chars
 
     def handle(
         self,
-        tool_request
+        tool_request,
+        agent_id=None
     ):
+
+        allowed_tool_names = None
+        if agent_id and self.agent_registry:
+            profile = self.agent_registry.get(agent_id)
+            if profile and profile.allowed_tools:
+                allowed_tool_names = set(profile.allowed_tools)
 
         result = (
             self.tool_manager.execute_tool(
                 tool_request.tool_name,
+                allowed_tool_names=allowed_tool_names,
                 **tool_request.parameters
             )
         )

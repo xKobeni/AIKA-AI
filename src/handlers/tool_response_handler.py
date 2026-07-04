@@ -1,4 +1,8 @@
+import logging
+
 from config.settings import settings
+
+logger = logging.getLogger(__name__)
 
 
 class ToolResponseHandler:
@@ -35,4 +39,8 @@ RULES:
 - Never invent information. If the result is empty, say so honestly.
 - Respond concisely but with genuine emotion and personality."""
 
-        return self.llm.generate(prompt)
+        try:
+            return self.llm.generate(prompt)
+        except Exception as e:
+            logger.error("LLM generation failed in tool response: %s", e)
+            return f"Here's what the {tool_result} tool returned: {tool_result}"

@@ -1,37 +1,50 @@
 import sys
 from pathlib import Path
+from unittest.mock import patch, MagicMock
 
 sys.path.append(
-    str(
-        Path(__file__).resolve().parent.parent / "src"
-    )
+    str(Path(__file__).resolve().parent.parent / "src")
 )
 
-from llm.embedding_service import (
-    EmbeddingService
-)
+import pytest
+from llm.embedding_service import EmbeddingService
+from repositories.memory_repository import MemoryRepository
 
-from repositories.memory_repository import (
-    MemoryRepository
-)
 
-embedder = EmbeddingService()
+class TestSemanticSearch:
 
-repo = MemoryRepository()
+    def test_generate_embedding_returns_list(self):
+        mock_response = {"embeddings": [[0.1, 0.2, 0.3]]}
+        with patch("llm.embedding_service.ollama.embed", return_value=mock_response):
+            service = EmbeddingService()
+            result = service.generate_embedding("What language is AIKA built with?")
+            assert isinstance(result, list)
+            assert len(result) == 3
 
-query = (
-    "What language is AIKA built with?"
-)
+    def test_semantic_search_returns_list(self):
+        mock_memory = MagicMock()
+        mock_memory.content = "AIKA is built with Python"
+        mock_memory._score = 0.85
 
-query_embedding = (
-    embedder.generate_embedding(
-        query
-    )
-)
+        repo = MemoryRepository()
+        with patch.object(repo, "semantic_search", return_value=[mock_memory]):
+            results = repo.semantic_search([0.1] * 768, limit=5)
+            assert isinstance(results, list)
+            assert len(results) == 1
+            assert results[0].content == "AIKA is built with Python"
 
-results = repo.semantic_search(
-    query_embedding
-)
+    def test_semantic_search_empty_when_no_match(self):
+        repo = MemoryRepository()
+        with patch.object(repo, "semantic_search", return_value=[]):
+            results = repo.semantic_search([0.1] * 768, limit=5)
+            assert results == []
 
-for memory in results:
-    print(memory.content)
+    def test_embedding_service_returns_none_on_empty(self):
+        service = EmbeddingService()
+        result = service.generate_embedding("")
+        assert result is None
+
+    def test_embedding_service_returns_none_on_whitespace(self):
+        service = EmbeddingService()
+        result = service.generate_embedding("   ")
+        assert result is None

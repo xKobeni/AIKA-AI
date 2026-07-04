@@ -35,12 +35,28 @@ class FileDeleteTool(BaseTool):
             }
         }
 
+    def _is_protected_path(self, file_path):
+        from config.settings import settings
+        import fnmatch
+        path_lower = file_path.lower()
+        for protected in settings.protected_paths:
+            protected = protected.strip().lower()
+            if protected and (protected in path_lower or fnmatch.fnmatch(path_lower, protected)):
+                return True
+        return False
+
     def execute(self, file_path, recursive=False, root_path=None):
 
         if not settings.file_delete_enabled:
             return {
                 "success": False,
                 "error": "File delete is disabled"
+            }
+
+        if self._is_protected_path(file_path):
+            return {
+                "success": False,
+                "error": f"Cannot delete protected path: {file_path}"
             }
 
         if root_path is None:

@@ -7,8 +7,9 @@ print("Type 'exit' to quit | 'help' for commands")
 
 while True:
 
+    agent_label = brain.current_agent_id
     sid = brain.current_session.id[:4]
-    user_input = input(f"\nYou [{sid}] > ")
+    user_input = input(f"\nYou [{agent_label}:{sid}] > ")
 
     cmd = user_input.lower().strip()
 
@@ -23,6 +24,9 @@ while True:
             "\n  resume <id>         Continue a previous session"
             "\n  delete session <id> Remove a session"
             "\n  clear               Clear conversation history"
+            "\n  list agents         Show all registered agents"
+            "\n  use <agent_id>      Switch to a different agent"
+            "\n  create agent <id> <name>  Create a new agent"
             "\n  !model [name]       Switch LLM model (e.g. !model llama3:8b)"
             "\n  !log [level]        Set log level (debug/info/warning/error)"
             "\n  !settings [cat]     View settings"
@@ -36,9 +40,11 @@ while True:
         continue
 
     try:
-        response = brain.process(user_input)
+        print("\nAIKA > ", end="", flush=True)
+        for chunk in brain.process_stream(user_input):
+            print(chunk, end="", flush=True)
+        print()
+    except KeyboardInterrupt:
+        print("\n[Interrupted]")
     except Exception as e:
         print(f"\n[Error] {e}")
-        continue
-
-    print(f"\nAIKA > {response}")

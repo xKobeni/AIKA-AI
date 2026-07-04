@@ -2,7 +2,8 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
-    DateTime
+    DateTime,
+    Boolean
 )
 
 from sqlalchemy.orm import (
@@ -71,6 +72,12 @@ class Memory(Base):
         Integer,
         nullable=True
     )
+
+    agent_id: Mapped[str] = mapped_column(
+        String(50),
+        nullable=True,
+        index=True
+    )
     
 # -----------------------------------------------------------------------------
 
@@ -133,6 +140,12 @@ class Conversation(Base):
         default=lambda: datetime.now(timezone.utc)
     )
 
+    agent_id: Mapped[str] = mapped_column(
+        String(50),
+        nullable=True,
+        index=True
+    )
+
 # -----------------------------------------------------------------------------
 
 
@@ -163,4 +176,56 @@ class Session(Base):
     summary: Mapped[str] = mapped_column(
         Text,
         nullable=True
+    )
+
+    agent_id: Mapped[str] = mapped_column(
+        String(50),
+        nullable=True,
+        index=True
+    )
+
+# -----------------------------------------------------------------------------
+
+
+class Agent(Base):
+
+    __tablename__ = "agents"
+
+    id: Mapped[str] = mapped_column(
+        String(50),
+        primary_key=True
+    )
+
+    name: Mapped[str] = mapped_column(
+        String(100)
+    )
+
+    persona_path: Mapped[str] = mapped_column(
+        String(500),
+        nullable=True
+    )
+
+    model: Mapped[str] = mapped_column(
+        String(100),
+        nullable=True
+    )
+
+    allowed_tools: Mapped[str] = mapped_column(
+        Text,
+        nullable=True
+    )
+
+    max_iterations: Mapped[int] = mapped_column(
+        Integer,
+        default=5
+    )
+
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc)
     )

@@ -11,7 +11,7 @@ class ConversationRepository:
 
     def create(self, role, content, session_id=None, tool_used=None,
                embedding=None, intent=None, model_used=None,
-               response_time_ms=None, token_count=None):
+               response_time_ms=None, token_count=None, agent_id=None):
 
         with db_session() as db:
 
@@ -24,7 +24,8 @@ class ConversationRepository:
                 intent=intent,
                 model_used=model_used,
                 response_time_ms=response_time_ms,
-                token_count=token_count
+                token_count=token_count,
+                agent_id=agent_id
             )
 
             db.add(conversation)
@@ -33,67 +34,72 @@ class ConversationRepository:
 
             return conversation
 
-    def get_recent(self, limit=None):
+    def get_recent(self, limit=None, agent_id=None):
 
         if limit is None:
             limit = self.recent_limit
 
         with db_session() as db:
 
-            conversations = (
-                db.query(Conversation)
-                .order_by(Conversation.id.desc())
-                .limit(limit)
-                .all()
-            )
-
+            query = db.query(Conversation).order_by(Conversation.id.desc())
+            if agent_id:
+                query = query.filter(
+                    (Conversation.agent_id == agent_id) | (Conversation.agent_id.is_(None))
+                )
+            conversations = query.limit(limit).all()
             return list(reversed(conversations))
 
-    def get_by_session(self, session_id, limit=None):
+    def get_by_session(self, session_id, limit=None, agent_id=None):
 
         if limit is None:
             limit = self.recent_limit
 
         with db_session() as db:
 
-            conversations = (
+            query = (
                 db.query(Conversation)
                 .filter(Conversation.session_id == session_id)
                 .order_by(Conversation.id.desc())
-                .limit(limit)
-                .all()
             )
-
+            if agent_id:
+                query = query.filter(
+                    (Conversation.agent_id == agent_id) | (Conversation.agent_id.is_(None))
+                )
+            conversations = query.limit(limit).all()
             return list(reversed(conversations))
 
-    def semantic_search(self, query_embedding, limit=5):
+    def semantic_search(self, query_embedding, limit=5, agent_id=None):
 
         with db_session() as db:
 
-            conversations = (
+            query = (
                 db.query(Conversation)
                 .filter(Conversation.embedding.isnot(None))
                 .order_by(Conversation.embedding.l2_distance(query_embedding))
                 .limit(limit)
-                .all()
             )
+            if agent_id:
+                query = query.filter(
+                    (Conversation.agent_id == agent_id) | (Conversation.agent_id.is_(None))
+                )
+            return list(reversed(query.all()))
 
-            return list(reversed(conversations))
-
-    def search_across_sessions(self, query_embedding, current_session_id, limit=5):
+    def search_across_sessions(self, query_embedding, current_session_id, limit=5, agent_id=None):
 
         with db_session() as db:
 
-            conversations = (
+            query = (
                 db.query(Conversation)
                 .filter(Conversation.embedding.isnot(None))
                 .filter(Conversation.session_id != current_session_id)
                 .order_by(Conversation.embedding.l2_distance(query_embedding))
                 .limit(limit)
-                .all()
             )
-
-            return list(reversed(conversations))
+            if agent_id:
+                query = query.filter(
+                    (Conversation.agent_id == agent_id) | (Conversation.agent_id.is_(None))
+                )
+            return list(reversed(query.all()))
 
     def get_by_role(self, role, limit=10):
 

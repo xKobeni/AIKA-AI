@@ -47,7 +47,7 @@ class MockMemoryHandler:
 
 
 class MockChatHandler:
-    def chat(self, msg): return f"[MOCK CHAT] You said: {msg}"
+    def chat(self, msg, intent=None, tool_name=None, agent_id=None): return f"[MOCK CHAT] You said: {msg}"
 
 
 class MockToolHandler:
@@ -233,7 +233,7 @@ check(
 # Test 6: DecisionEngine with no LLM returns CHAT for non-matching
 print("\n[Test 6: DecisionEngine — no LLM fallback]")
 
-de = DecisionEngine(llm=None)
+de = DecisionEngine()
 action = de.decide("tell me about dogs")
 check(
     "decision engine returns CHAT when no LLM available",

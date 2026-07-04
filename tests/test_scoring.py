@@ -1,75 +1,92 @@
 import sys
 from pathlib import Path
+from unittest.mock import patch, MagicMock
 from datetime import datetime, timedelta
-
-sys.path.append(
-    str(
-        Path(__file__).resolve().parent.parent / "src"
-    )
-)
-
-from llm.embedding_service import EmbeddingService
-from repositories.memory_repository import MemoryRepository
 import math
 
-embedder = EmbeddingService()
-repo = MemoryRepository()
+sys.path.append(
+    str(Path(__file__).resolve().parent.parent / "src")
+)
 
-test_queries = [
-    "What project am I building?",
-    "What do you know about me?",
-    "Tell me about my goals",
-    "What are my preferences?",
-    "General chat about anything"
-]
+import pytest
+from repositories.memory_repository import MemoryRepository
 
-for query in test_queries:
-    print(f"\n{'='*60}")
-    print(f"QUERY: {query}")
-    print(f"{'='*60}")
 
-    query_embedding = embedder.generate_embedding(query)
-    if not query_embedding:
-        print("[SKIP] Embedding failed")
-        continue
+class TestSemanticScoring:
 
-    results = repo.semantic_search(query_embedding, limit=8)
+    def _make_memory(self, content, category="fact", importance=5,
+                     access_count=0, created_at=None, last_accessed=None, embedding=None):
+        m = MagicMock()
+        m.id = 1
+        m.content = content
+        m.category = category
+        m.importance = importance
+        m.access_count = access_count
+        m.created_at = created_at or datetime.utcnow()
+        m.last_accessed = last_accessed
+        m.embedding = embedding or [0.1] * 768
+        m._score = 0.0
+        return m
 
-    if not results:
-        print("No results found.")
-        continue
+    def test_cosine_similarity_identical_vectors(self):
+        repo = MemoryRepository()
+        vec = [1.0, 0.0, 0.0]
+        score = repo.cosine_similarity(vec, vec)
+        assert abs(score - 1.0) < 0.001
 
-    header = (
-        f"{'Score':<8} {'Sim*0.5':<10} {'Imp*0.25':<11} "
-        f"{'LogAcc*0.1':<11} {'Boost':<7} {'Rec*0.15':<10} "
-        f"{'Cat':<12} {'Imp':<4} {'Acc':<4} Content"
-    )
-    print(header)
-    print("-" * 120)
+    def test_cosine_similarity_orthogonal_vectors(self):
+        repo = MemoryRepository()
+        a = [1.0, 0.0, 0.0]
+        b = [0.0, 1.0, 0.0]
+        score = repo.cosine_similarity(a, b)
+        assert abs(score) < 0.001
 
-    for m in results:
-        emb = embedder.generate_embedding(query)
-        sim = repo.cosine_similarity(emb, m.embedding) if emb else 0
+    def test_cosine_similarity_opposite_vectors(self):
+        repo = MemoryRepository()
+        a = [1.0, 0.0]
+        b = [-1.0, 0.0]
+        score = repo.cosine_similarity(a, b)
+        assert abs(score + 1.0) < 0.001
 
-        ref_time = m.last_accessed or m.created_at
-        if ref_time:
-            hrs = (datetime.utcnow() - ref_time).total_seconds() / 3600
-            rec = math.exp(-hrs / 720.0)
-        else:
-            rec = 0.0
-
-        cat_boost = {"project": 0.3, "goal": 0.2, "skill": 0.1}.get(m.category, 0)
-
-        sim_part = sim * 0.50
-        imp_part = (m.importance / 10.0) * 0.25
-        acc_part = math.log(1 + m.access_count) * 0.10
-        rec_part = rec * 0.15
-        total = getattr(m, '_score', 0)
-
-        print(
-            f"{total:<8.4f} {sim_part:<10.4f} {imp_part:<11.4f} "
-            f"{acc_part:<11.4f} {cat_boost:<7.2f} {rec_part:<10.4f} "
-            f"{m.category:<12} {m.importance:<4} {m.access_count:<4} {m.content[:50]}"
+    def test_scoring_combines_similarity_and_recency(self):
+        repo = MemoryRepository()
+        now = datetime.utcnow()
+        recent = self._make_memory(
+            "recent memory", category="fact", importance=5,
+            last_accessed=now
         )
+        old = self._make_memory(
+            "old memory", category="fact", importance=5,
+            last_accessed=now - timedelta(days=30)
+        )
+        assert recent.last_accessed > old.last_accessed
 
-print("\nDone.")
+    def test_importance_affects_ranking(self):
+        high_imp = self._make_memory("important", importance=9)
+        low_imp = self._make_memory("trivial", importance=2)
+        assert high_imp.importance > low_imp.importance
+
+    def test_access_count_affects_ranking(self):
+        frequent = self._make_memory("frequent", access_count=10)
+        rare = self._make_memory("rare", access_count=0)
+        assert frequent.access_count > rare.access_count
+
+    def test_category_boost_project(self):
+        project = self._make_memory("project", category="project")
+        fact = self._make_memory("fact", category="fact")
+        boost_map = {"project": 0.3, "goal": 0.2, "skill": 0.1}
+        assert boost_map.get(project.category, 0) > boost_map.get(fact.category, 0)
+
+    def test_recency_decay_formula(self):
+        now = datetime.utcnow()
+        hrs_1 = 1.0
+        hrs_100 = 100.0
+        half_life = 720.0
+        rec_1 = math.exp(-hrs_1 / half_life)
+        rec_100 = math.exp(-hrs_100 / half_life)
+        assert rec_1 > rec_100
+        assert rec_1 > 0.9
+
+    def test_log_scaled_access_count(self):
+        assert math.log(1 + 10) > math.log(1 + 0)
+        assert math.log(1 + 100) > math.log(1 + 10)

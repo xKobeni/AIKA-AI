@@ -55,7 +55,7 @@ class MockMemoryHandler:
 
 class MockChatHandler:
 
-    def chat(self, msg):
+    def chat(self, msg, intent=None, tool_name=None, agent_id=None):
         return f"[MOCK CHAT] You said: {msg}"
 
 
@@ -113,7 +113,7 @@ router = Router(
     executor=executor
 )
 
-decision_engine = DecisionEngine(llm=llm)
+decision_engine = DecisionEngine()
 
 # Test 1: PLAN_EXECUTION triggered for summarize
 print("[Test 1: summarize triggers PLAN_EXECUTION -> Plan -> Execute]")

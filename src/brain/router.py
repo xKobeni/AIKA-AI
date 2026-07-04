@@ -20,7 +20,8 @@ class Router:
         executor=None,
         intent_classifier=None,
         config_handler=None,
-        llm=None
+        llm=None,
+        orchestrator=None
     ):
 
         self.memory_handler = memory_handler
@@ -32,11 +33,13 @@ class Router:
         self.intent_classifier = intent_classifier
         self.config_handler = config_handler
         self.llm = llm
+        self.orchestrator = orchestrator
 
     def route(
         self,
         action,
-        user_message
+        user_message,
+        agent_id=None
     ):
 
         t0 = time.time()
@@ -45,21 +48,23 @@ class Router:
         if action == Action.STORE_MEMORY:
 
             result = self.memory_handler.store_memory(
-                user_message
+                user_message,
+                agent_id=agent_id
             )
             logger.debug("Route: STORE_MEMORY (%.2fs)", time.time() - t0)
             return result
 
         if action == Action.LIST_MEMORIES:
 
-            result = self.memory_handler.list_memories()
+            result = self.memory_handler.list_memories(agent_id=agent_id)
             logger.debug("Route: LIST_MEMORIES (%.2fs)", time.time() - t0)
             return result
 
         if action == Action.SEARCH_MEMORY:
 
             result = self.memory_handler.search_memory(
-                user_message[7:]
+                user_message[7:],
+                agent_id=agent_id
             )
             logger.debug("Route: SEARCH_MEMORY (%.2fs)", time.time() - t0)
             return result
@@ -115,11 +120,30 @@ class Router:
             logger.debug("Route: CONFIGURE (%.2fs)", time.time() - t0)
             return result
 
+        if action == Action.DELEGATE:
+
+            if not self.orchestrator:
+                return "Orchestration system is not available."
+
+            result = self._handle_delegate(user_message, agent_id)
+            logger.debug("Route: DELEGATE (%.2fs)", time.time() - t0)
+            return result
+
+        if action == Action.ORCHESTRATE:
+
+            if not self.orchestrator:
+                return "Orchestration system is not available."
+
+            result = self._handle_orchestrate(user_message, agent_id)
+            logger.debug("Route: ORCHESTRATE (%.2fs)", time.time() - t0)
+            return result
+
         if action == Action.CHAT:
 
             result = self.chat_handler.chat(
                 user_message,
-                intent=action.value
+                intent=action.value,
+                agent_id=agent_id
             )
             logger.debug("Route: CHAT (%.2fs)", time.time() - t0)
             return result
@@ -449,7 +473,7 @@ class Router:
                     )
                     logger.debug("Route: USE_TOOL -> memory_search")
 
-            result = self.tool_handler.handle(tool_request)
+            result = self.tool_handler.handle(tool_request, agent_id=agent_id)
             logger.debug("Route: Total: %.2fs", time.time() - t0)
             return result
 
@@ -485,4 +509,51 @@ class Router:
             f"Request: {description}"
         )
         return self.llm.generate(prompt)
+
+    def _handle_delegate(self, user_message, agent_id=None):
+        parts = user_message[len("delegate "):].strip().split(None, 1)
+        if len(parts) < 2:
+            return "Usage: delegate <agent_id> <task>"
+        target_agent = parts[0]
+        task = parts[1]
+
+        from_agent = agent_id or "aika"
+        result = self.orchestrator.delegate(from_agent, task, target_agent)
+        return result
+
+    def _handle_orchestrate(self, user_message, agent_id=None):
+        text = user_message.lower().strip()
+
+        if text.startswith("chain "):
+            parts = user_message[len("chain "):].strip().split(None, 1)
+            if len(parts) < 2:
+                return "Usage: chain <agent1> <agent2> ... <task>"
+            agent_list_str = parts[0]
+            task = parts[1]
+            agent_ids = [a.strip() for a in agent_list_str.split(",")]
+            result = self.orchestrator.run_chain(agent_ids, task)
+            return result
+
+        if text.startswith("team "):
+            parts = user_message[len("team "):].strip().split(None, 1)
+            if len(parts) < 2:
+                return "Usage: team <agent1> <agent2> ... <task>"
+            agent_list_str = parts[0]
+            task = parts[1]
+            agent_ids = [a.strip() for a in agent_list_str.split(",")]
+            result = self.orchestrator.run_team(agent_ids, task)
+            return result
+
+        if text.startswith("parallel "):
+            parts = user_message[len("parallel "):].strip().split(None, 1)
+            if len(parts) < 2:
+                return "Usage: parallel <agent1>,<agent2> ... <task>"
+            agent_list_str = parts[0]
+            task = parts[1]
+            agent_ids = [a.strip() for a in agent_list_str.split(",")]
+            results = self.orchestrator.run_parallel(agent_ids, task)
+            lines = [f"[{agent}]: {result}" for agent, result in results.items()]
+            return "\n\n".join(lines)
+
+        return "Usage: chain <agents> <task> | team <agents> <task> | parallel <agents> <task>"
 
