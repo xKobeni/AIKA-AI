@@ -12,6 +12,10 @@ _SENSITIVE_KEYS = {
     "api_key", "apikey", "authorization", "content", "credential",
     "new_text", "old_text", "password", "secret", "token",
 }
+_SENSITIVE_KEY_PATTERN = re.compile(
+    r"(?i)(?:^|[_-])(?:api[_-]?key|auth(?:orization)?|credential|password|passwd|"
+    r"private[_-]?key|secret|token)(?:$|[_-])"
+)
 _SECRET_VALUE_PATTERN = re.compile(
     r"(?i)(bearer\s+|(?:api[_-]?key|password|secret|token)\s*[=:]\s*)"
     r"([^\s,;]+)"
@@ -19,7 +23,10 @@ _SECRET_VALUE_PATTERN = re.compile(
 
 
 def _redact_sensitive(value, key=None):
-    if key and key.lower() in _SENSITIVE_KEYS:
+    if key and (
+        key.lower() in _SENSITIVE_KEYS
+        or _SENSITIVE_KEY_PATTERN.search(key)
+    ):
         return "[REDACTED]"
     if isinstance(value, dict):
         return {
@@ -35,10 +42,28 @@ def _redact_sensitive(value, key=None):
 
 class ToolManager:
 
-    def __init__(self):
+    def __init__(self, confirmation_handler=None, event_handler=None):
 
         self.tools = {}
         self._high_permission_tools = set()
+        self._confirmation_handler = confirmation_handler
+        self._event_handler = event_handler
+
+    def set_confirmation_handler(self, handler):
+        self._confirmation_handler = handler
+
+    def set_event_handler(self, handler):
+        self._event_handler = handler
+
+    def _emit_event(self, event_type, payload):
+        if self._event_handler is None:
+            return
+        try:
+            self._event_handler(event_type, payload)
+        except Exception as exc:
+            logger.warning(
+                "Tool event handler failed: %s", type(exc).__name__
+            )
 
     def register_tool(self, tool):
 
@@ -97,8 +122,21 @@ class ToolManager:
         if not self.is_high_permission(tool_name):
             return True
 
+        safe_parameters = _redact_sensitive(parameters)
+        if self._confirmation_handler is not None:
+            try:
+                return bool(
+                    self._confirmation_handler(tool_name, safe_parameters)
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Tool confirmation handler failed closed: %s",
+                    type(exc).__name__,
+                )
+                return False
+
         param_preview = json.dumps(
-            _redact_sensitive(parameters), indent=2, default=str
+            safe_parameters, indent=2, default=str
         )
         if len(param_preview) > 500:
             param_preview = param_preview[:500] + "..."
@@ -129,6 +167,7 @@ class ToolManager:
 
         success = result.get("success", False) if isinstance(result, dict) else False
         error = result.get("error", "") if isinstance(result, dict) else ""
+        error = _redact_sensitive(str(error)) if error else ""
 
         entry = {
             "timestamp": datetime.now().isoformat(),
@@ -170,11 +209,22 @@ class ToolManager:
                 "error": f"Tool '{tool_name}' is not available for this agent."
             }
 
+        self._emit_event("tool_request", {
+            "tool_name": tool_name,
+            "parameters": _redact_sensitive(kwargs),
+        })
+
         if not self._check_confirmation(tool_name, kwargs):
-            return {
+            result = {
                 "success": False,
                 "error": "Execution cancelled by user."
             }
+            self._emit_event("tool_result", {
+                "tool_name": tool_name,
+                "success": False,
+                "error": result["error"],
+            })
+            return result
 
         tool = self.get_tool(tool_name)
         try:
@@ -185,11 +235,20 @@ class ToolManager:
                     "error": "Tool returned an invalid result"
                 }
         except Exception as exc:
-            logger.exception("Tool '%s' execution failed", tool_name)
+            logger.error(
+                "Tool '%s' execution failed: %s",
+                tool_name,
+                type(exc).__name__,
+            )
             result = {
                 "success": False,
                 "error": f"Tool execution failed: {type(exc).__name__}"
             }
 
         self._audit_log(tool_name, kwargs, result, agent_id=agent_id)
+        self._emit_event("tool_result", {
+            "tool_name": tool_name,
+            "success": bool(result.get("success", False)),
+            "error": _redact_sensitive(str(result.get("error", ""))),
+        })
         return result

@@ -6,6 +6,13 @@ from models.actions import Action
 logger = logging.getLogger(__name__)
 
 
+CONVERSATIONAL_STARTERS = {
+    "me", "us", "a", "an", "the", "some", "more", "new", "your", "my",
+    "him", "her", "them", "it", "one", "two", "three", "that", "this",
+    "good", "great", "something", "anything", "everything", "nothing",
+}
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -21,11 +28,6 @@ def _looks_like_file_op(text, prefix_len):
         return False
 
     # Common natural-language non-file suffixes that indicate a conversation
-    CONVERSATIONAL_STARTERS = {
-        "me", "us", "a", "an", "the", "some", "more", "new", "your", "my",
-        "him", "her", "them", "it", "one", "two", "three", "that", "this",
-        "good", "great", "something", "anything", "everything", "nothing",
-    }
     first_word = remainder.split()[0].lower().rstrip(".,!?")
     if first_word in CONVERSATIONAL_STARTERS:
         return False
@@ -40,7 +42,8 @@ def _looks_like_file_op(text, prefix_len):
 
     # Prefixes that are ONLY meaningful in a file context
     FILE_INDICATIVE_WORDS = {
-        "file", "folder", "directory", "dir", "path",
+        "file", "files", "folder", "folders", "directory", "directories",
+        "dir", "path",
         "script", "log", "config", "txt", "csv", "json",
         "py", "js", "html", "css", "md",
     }
@@ -157,7 +160,12 @@ class DecisionEngine:
 
         # "open" only routes to app_launcher if it looks like an application name
         if text.startswith("open "):
-            if _looks_like_file_op(text, 5):
+            remainder = text[5:].strip()
+            first_word = remainder.split()[0].rstrip(".,!?") if remainder else ""
+            if (
+                _looks_like_file_op(text, 5)
+                or (remainder and first_word not in CONVERSATIONAL_STARTERS)
+            ):
                 logger.debug("-> USE_TOOL (app_launcher)")
                 return Action.USE_TOOL
             # Otherwise fall through to classifier / chat

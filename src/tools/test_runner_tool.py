@@ -1,10 +1,16 @@
 import subprocess
 import logging
+import sys
 
 from tools.base_tool import BaseTool
 from tools.tool_category import ToolCategory
 from tools.tool_permission import ToolPermission
 from config.settings import settings
+from tools.path_security import (
+    OUTSIDE_WORKSPACE_ERROR,
+    is_protected_path,
+    resolve_workspace_path,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -13,7 +19,7 @@ class TestRunnerTool(BaseTool):
 
     description = "Runs Python tests (pytest or unittest)"
     category = ToolCategory.PRODUCTIVITY
-    permission = ToolPermission.MEDIUM
+    permission = ToolPermission.HIGH
 
     @property
     def name(self):
@@ -43,11 +49,23 @@ class TestRunnerTool(BaseTool):
             }
         }
 
-    def execute(self, path=None, pattern=None, verbose=True):
-        cmd = ["python", "-m", "pytest"]
+    def execute(self, path=None, pattern=None, verbose=True, root_path=None):
+        configured_root = root_path or settings.file_search_root_path
+        root, target = resolve_workspace_path(configured_root, path or ".")
+        if target is None:
+            return {"success": False, "error": OUTSIDE_WORKSPACE_ERROR}
+        if is_protected_path(target, root):
+            return {
+                "success": False,
+                "error": f"Cannot run tests from protected path: {path}",
+            }
+        if not target.exists():
+            return {
+                "success": False,
+                "error": f"Test path not found: {path}",
+            }
 
-        if path:
-            cmd.append(path)
+        cmd = [sys.executable, "-m", "pytest", str(target)]
 
         if pattern:
             cmd.extend(["-k", pattern])
@@ -62,7 +80,8 @@ class TestRunnerTool(BaseTool):
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=120
+                timeout=120,
+                cwd=str(root),
             )
 
             output = result.stdout
@@ -78,9 +97,9 @@ class TestRunnerTool(BaseTool):
 
         except FileNotFoundError:
             try:
-                cmd = ["python", "-m", "unittest"]
-                if path:
-                    cmd.append(path)
+                cmd = [sys.executable, "-m", "unittest"]
+                if target != root:
+                    cmd.append(str(target))
                 if verbose:
                     cmd.append("-v")
 
@@ -88,7 +107,8 @@ class TestRunnerTool(BaseTool):
                     cmd,
                     capture_output=True,
                     text=True,
-                    timeout=120
+                    timeout=120,
+                    cwd=str(root),
                 )
 
                 return {

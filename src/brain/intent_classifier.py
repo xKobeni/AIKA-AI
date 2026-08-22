@@ -35,6 +35,8 @@ class LLMIntentClassifier:
     def __init__(self, llm=None):
         self.llm = llm
         self.model = settings.fast_model
+        self._last_text = None
+        self._last_result = None
 
     def refresh_from_settings(self):
         self.model = settings.fast_model
@@ -43,8 +45,6 @@ class LLMIntentClassifier:
         if self.llm is not None:
             return self.llm.chat(**kwargs)
         return ollama.chat(**kwargs)
-        self._last_text = None
-        self._last_result = None
 
     def classify(self, text):
         if text == self._last_text:

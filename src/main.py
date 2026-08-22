@@ -22,15 +22,16 @@ def _print_help():
 
 
 def main():
-    from brain.brain import AikaBrain
+    from application.events import AikaEventType
+    from application.service import AikaService
 
-    brain = AikaBrain()
+    service = AikaService()
     print("AIKA Online")
     print("Type 'exit' to quit | 'help' for commands")
     try:
         while True:
-            agent_label = brain.current_agent_id
-            sid = brain.current_session.id[:4]
+            agent_label = service.current_agent_id
+            sid = service.current_session_id[:4]
             user_input = input(f"\nYou [{agent_label}:{sid}] > ")
             cmd = user_input.lower().strip()
 
@@ -42,15 +43,35 @@ def main():
 
             try:
                 print("\nAIKA > ", end="", flush=True)
-                for chunk in brain.process_stream(user_input):
-                    print(chunk, end="", flush=True)
+                for event in service.stream(user_input):
+                    if event.type == AikaEventType.TEXT_DELTA:
+                        print(event.data.get("text", ""), end="", flush=True)
+                    elif event.type == AikaEventType.APPROVAL_REQUIRED:
+                        print("\n\n" + "=" * 50)
+                        print("HIGH PERMISSION TOOL REQUEST")
+                        print(f"Tool: {event.data['tool_name']}")
+                        print(f"Parameters: {event.data['parameters']}")
+                        print("=" * 50)
+                        answer = input("Execute? [y/N]: ").strip().lower()
+                        service.resolve_confirmation(
+                            event.data["confirmation_id"],
+                            answer in ("y", "yes"),
+                        )
+                    elif event.type == AikaEventType.ERROR:
+                        print(
+                            f"\n[Error] {event.data.get('error', 'Operation failed')}",
+                            end="",
+                        )
+                    elif event.type == AikaEventType.CANCELLED:
+                        print("\n[Interrupted]", end="")
                 print()
             except KeyboardInterrupt:
+                service.cancel_active()
                 print("\n[Interrupted]")
             except Exception as exc:
                 print(f"\n[Error] {exc}")
     finally:
-        brain.close(wait=True)
+        service.close(wait=True)
 
 
 if __name__ == "__main__":

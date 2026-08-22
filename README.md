@@ -22,6 +22,7 @@ AIKA is a living desktop companion that observes, remembers, and grows with its 
 - **Configuration System** — View and change all settings at runtime (`!settings`, `!set`, `!save`, `!reload`, `!model`, `!log`)
 - **Editable Persona** — Personality defined in a plain text file, editable without restarting (`!persona`, `!persona reload`)
 - **Managed Runtime Lifecycle** — Shared sync/stream response finalization and explicit shutdown of background and Ollama client resources
+- **Transport-Neutral Application Service** — Typed streaming, tool approval, cancellation, session/history, agent/model status, and lifecycle events shared by the CLI and future interfaces
 
 ## Quick Start
 

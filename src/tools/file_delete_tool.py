@@ -60,6 +60,12 @@ class FileDeleteTool(BaseTool):
                 "error": OUTSIDE_WORKSPACE_ERROR
             }
 
+        if path == root:
+            return {
+                "success": False,
+                "error": "Cannot delete the workspace root"
+            }
+
         if is_protected_path(path, root):
             return {
                 "success": False,

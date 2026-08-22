@@ -71,7 +71,18 @@ class OllamaClient:
                 if ollama.list is not _DEFAULT_LIST
                 else self.client.list()
             )
-            return [m["name"] for m in response.get("models", [])]
+            names = []
+            for model in response.get("models", []):
+                if isinstance(model, dict):
+                    name = model.get("name") or model.get("model")
+                else:
+                    name = (
+                        getattr(model, "name", None)
+                        or getattr(model, "model", None)
+                    )
+                if name:
+                    names.append(name)
+            return names
         except Exception as e:
             logger.warning("Failed to list Ollama models: %s", e)
             return []

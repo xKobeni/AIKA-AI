@@ -17,6 +17,11 @@ AIKA AI/
 │   ├── main.py                              # Entry point (CLI loop)
 │   ├── create_tables.py                     # DB table initialization
 │   ├── migrate_db.py                        # Versioned migration status/dry-run/apply CLI
+│   ├── application/
+│   │   ├── __init__.py
+│   │   ├── events.py                        # Typed application events and results
+│   │   ├── confirmation.py                  # Transport-neutral approval coordination
+│   │   └── service.py                       # AikaService facade over AikaBrain
 │   ├── config/
 │   │   ├── __init__.py
 │   │   ├── settings.py                      # Settings from .env
@@ -147,6 +152,12 @@ AIKA AI/
 User Input
     │
     ▼
+AikaService.stream() / submit()
+    │  ┌──────────────────────┐
+    ├──│ Typed events         │──► text, status, tool, approval, completion, error
+    │  └──────────────────────┘
+    │
+    ▼
 AikaBrain.process() / process_stream()
     │
     ▼
@@ -217,6 +228,11 @@ Background: MemoryExtractor.extract_memory()
 ### Agents (`src/agents/`)
 - **`AgentProfile`** — Dataclass holding agent identity: id, name, persona_path, model, allowed_tools, max_iterations, is_active, role, delegates_to.
 - **`AgentRegistry`** — Manages agent profiles with JSON persistence (`data/agents.json`). Supports create, update, set_model, set_persona. Auto-discovers persona files from `src/config/personas/`.
+
+### Application (`src/application/`)
+- **`AikaService`** — Transport-neutral facade used by the CLI. Serializes access to the stateful brain, streams typed events, coordinates tool approvals, supports best-effort cancellation, exposes bounded session/history views, and owns runtime shutdown.
+- **`AikaEvent` / `AikaResult`** — Stable event and collected-result contracts for text deltas, tool activity, approvals, completion, cancellation, and errors.
+- **`ConfirmationCoordinator`** — Holds pending approvals outside stdin so a CLI, GUI, or API client can resolve the same high-permission tool request without bypassing `ToolManager` policy.
 
 ### Brain (`src/brain/`)
 - **`AikaBrain`** — Top-level composition root and orchestrator. Initializes services, repositories, handlers, and the default tool set. Exposes `process(user_message)` and `process_stream(user_message)`, manages session lifecycle and multi-agent orchestration, and owns explicit `close()`/context-manager lifecycle cleanup.
