@@ -14,6 +14,9 @@ class MemoryHandler:
         self.retrieval_service = retrieval_service
         self.retrieval_limit = settings.memory_retrieval_limit
 
+    def refresh_from_settings(self):
+        self.retrieval_limit = settings.memory_retrieval_limit
+
     def store_memory(
         self,
         user_message,
@@ -32,6 +35,9 @@ class MemoryHandler:
             memory_type = memory_type.strip()
             content = content.strip()
 
+            if not content:
+                return "No memory content provided."
+
             type_importance = {
                 "project": 9, "goal": 8,
                 "skill": 6, "preference": 6,
@@ -40,6 +46,12 @@ class MemoryHandler:
             importance = type_importance.get(memory_type, 5)
 
             embedding = self.embedding_service.generate_embedding(content)
+
+            if embedding is None:
+                return (
+                    "I couldn't store that memory because "
+                    "embeddings are unavailable."
+                )
 
             self.memory_repo.create(
                 memory_type,
@@ -53,7 +65,16 @@ class MemoryHandler:
             return f"Stored {memory_type} memory."
 
         content = raw.strip()
+        if not content:
+            return "No memory content provided."
+
         embedding = self.embedding_service.generate_embedding(content)
+
+        if embedding is None:
+            return (
+                "I couldn't store that memory because "
+                "embeddings are unavailable."
+            )
 
         self.memory_repo.create(
             "fact",
@@ -171,6 +192,9 @@ class MemoryHandler:
             self.embedding_service
             .generate_embedding(query)
         )
+
+        if not query_embedding:
+            return []
 
         memories = (
             self.memory_repo

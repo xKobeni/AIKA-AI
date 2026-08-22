@@ -5,6 +5,19 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+DEFAULT_LOG_FORMAT = "[%(levelname)s] %(message)s"
+
+
+def _validate_log_format(value: str) -> str:
+    try:
+        logging.Formatter(value)
+    except (TypeError, ValueError):
+        logging.getLogger(__name__).warning(
+            "Invalid LOG_FORMAT; using the default logging format."
+        )
+        return DEFAULT_LOG_FORMAT
+    return value
+
 
 class Settings:
 
@@ -42,7 +55,7 @@ class Settings:
         self.memory_extraction_max_per_message: int = int(os.getenv("MEMORY_EXTRACTION_MAX_PER_MESSAGE", "3"))
 
         # Context
-        self.max_context_tokens: int = int(os.getenv("MAX_CONTEXT_TOKENS", "3000"))
+        self.max_context_tokens: int = int(os.getenv("MAX_CONTEXT_TOKENS", "6000"))
         self.max_profile_per_category: int = int(os.getenv("MAX_PROFILE_PER_CATEGORY", "2"))
         self.recent_conversations_count: int = int(os.getenv("RECENT_CONVERSATIONS_COUNT", "10"))
         self.context_session_summaries_count: int = int(os.getenv("CONTEXT_SESSION_SUMMARIES_COUNT", "5"))
@@ -60,6 +73,16 @@ class Settings:
         self.plan_web_search_max_results: int = int(os.getenv("PLAN_WEB_SEARCH_MAX_RESULTS", "5"))
         self.plan_top_sources_count: int = int(os.getenv("PLAN_TOP_SOURCES_COUNT", "3"))
         self.crawl_content_max_chars: int = int(os.getenv("CRAWL_CONTENT_MAX_CHARS", "2000"))
+        self.web_crawl_max_workers: int = int(os.getenv("WEB_CRAWL_MAX_WORKERS", "4"))
+        self.web_crawl_max_urls: int = int(os.getenv("WEB_CRAWL_MAX_URLS", "10"))
+        self.web_crawl_max_redirects: int = int(os.getenv("WEB_CRAWL_MAX_REDIRECTS", "5"))
+        self.web_crawl_timeout: int = int(os.getenv("WEB_CRAWL_TIMEOUT", "15"))
+        self.web_crawl_max_response_bytes: int = int(os.getenv(
+            "WEB_CRAWL_MAX_RESPONSE_BYTES", "5000000"
+        ))
+        self.web_crawl_allow_private_network: bool = os.getenv(
+            "WEB_CRAWL_ALLOW_PRIVATE_NETWORK", "false"
+        ).lower() == "true"
 
         # Agent Loop
         self.agent_max_iterations: int = int(os.getenv("AGENT_MAX_ITERATIONS", "5"))
@@ -76,6 +99,8 @@ class Settings:
         self.file_write_encoding: str = os.getenv("FILE_WRITE_ENCODING", "utf-8")
         self.file_delete_enabled: bool = os.getenv("FILE_DELETE_ENABLED", "true").lower() == "true"
         self.file_grep_max_results: int = int(os.getenv("FILE_GREP_MAX_RESULTS", "50"))
+        self.file_search_max_results: int = int(os.getenv("FILE_SEARCH_MAX_RESULTS", "20"))
+        self.file_scan_max_files: int = int(os.getenv("FILE_SCAN_MAX_FILES", "10000"))
 
         # Paths
         self.execution_log_path: str = os.getenv("EXECUTION_LOG_PATH", "logs/execution.log")
@@ -84,7 +109,15 @@ class Settings:
 
         # OS / Shell
         self.shell_enabled: bool = os.getenv("SHELL_ENABLED", "true").lower() == "true"
+        self.shell_unsafe_enabled: bool = os.getenv(
+            "SHELL_UNSAFE_ENABLED", "false"
+        ).lower() == "true"
         self.shell_timeout: int = int(os.getenv("SHELL_TIMEOUT", "30"))
+        self.shell_allowed_workdirs: list = [
+            value.strip() for value in os.getenv(
+                "SHELL_ALLOWED_WORKDIRS", "."
+            ).split(",") if value.strip()
+        ]
         self.shell_blocked_keywords: list = os.getenv(
             "SHELL_BLOCKED_KEYWORDS",
             "rm -rf,format,del /,shutdown,rd /s,del /f,format c:,diskpart"
@@ -112,7 +145,9 @@ class Settings:
 
         # Logging
         self.log_level: str = os.getenv("LOG_LEVEL", "DEBUG")
-        self.log_format: str = os.getenv("LOG_FORMAT", "[%(levelname)s] %(message)s")
+        self.log_format: str = _validate_log_format(
+            os.getenv("LOG_FORMAT", DEFAULT_LOG_FORMAT)
+        )
 
     def load_persona(self):
         path = Path(self.persona_path)

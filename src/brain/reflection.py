@@ -28,15 +28,26 @@ class ReflectionEngine:
         "NEXT: <what failed or is missing>"
     )
 
-    def __init__(self):
+    def __init__(self, llm=None):
+        self.llm = llm
         self.model = settings.fast_model
+
+    def refresh_from_settings(self):
+        self.model = settings.fast_model
+
+    def _chat(self, **kwargs):
+        if self.llm is not None:
+            return self.llm.chat(**kwargs)
+        return ollama.chat(**kwargs)
 
     def reflect(self, original_message, action_history, latest_result):
         result_text = str(latest_result).lower()
 
+        # If the result contains an explicit failure phrase, signal NOT done
+        # so the loop can try an alternative approach rather than stopping
         if any(phrase in result_text for phrase in FAIL_PHRASES):
-            logger.debug("Reflection: fail-fast (result contains error/empty)")
-            return {"done": True, "next_action": None}
+            logger.debug("Reflection: fail-fast (result contains error/empty) -> NEXT")
+            return {"done": False, "next_action": "try_alternative"}
 
         prompt = (
             f"Original request: {original_message}\n\n"
@@ -46,7 +57,7 @@ class ReflectionEngine:
         )
 
         try:
-            response = ollama.chat(
+            response = self._chat(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": self.SYSTEM_PROMPT},
@@ -64,8 +75,10 @@ class ReflectionEngine:
                 next_step = text[5:].strip()
                 return {"done": False, "next_action": next_step}
 
+            # Ambiguous response — treat as done to avoid infinite loops
             return {"done": True, "next_action": None}
 
         except Exception as e:
             logger.warning("Reflection failed: %s", e)
+            # On exception, treat as done to avoid getting stuck
             return {"done": True, "next_action": None}

@@ -40,14 +40,24 @@ class LLMToolRouter:
         "- Use the tool descriptions below to choose the right tool.\n"
     )
 
-    def __init__(self, tool_manager):
+    def __init__(self, tool_manager, llm=None):
         self.tool_manager = tool_manager
+        self.llm = llm
         self.parser = ToolCallParser(
             tool_names=set(tool_manager.tools.keys())
         )
         self.model = settings.chat_model
         self._last_prompt_hash = None
         self._last_result = None
+        self.native_tool_calling = getattr(settings, 'native_tool_calling', True)
+
+    def _chat(self, **kwargs):
+        if self.llm is not None:
+            return self.llm.chat(**kwargs)
+        return ollama.chat(**kwargs)
+
+    def refresh_from_settings(self):
+        self.model = settings.chat_model
         self.native_tool_calling = getattr(settings, 'native_tool_calling', True)
 
     def decide_and_route(self, user_message, context_history=None):
@@ -62,7 +72,7 @@ class LLMToolRouter:
         prompt = self._build_prompt(user_message, context_history)
 
         try:
-            response = ollama.chat(
+            response = self._chat(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": self.SYSTEM_PROMPT},
@@ -98,7 +108,7 @@ class LLMToolRouter:
         prompt = self._build_prompt(user_message, context_history)
 
         try:
-            response = ollama.chat(
+            response = self._chat(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": self.LEGACY_SYSTEM_PROMPT},

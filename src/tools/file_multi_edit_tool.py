@@ -1,8 +1,12 @@
-from pathlib import Path
 from tools.base_tool import BaseTool
 from tools.tool_category import ToolCategory
 from tools.tool_permission import ToolPermission
 from config.settings import settings
+from tools.path_security import (
+    OUTSIDE_WORKSPACE_ERROR,
+    is_protected_path,
+    resolve_workspace_path,
+)
 
 
 class FileMultiEditTool(BaseTool):
@@ -12,6 +16,9 @@ class FileMultiEditTool(BaseTool):
     permission = ToolPermission.HIGH
 
     def __init__(self):
+        self.encoding = settings.file_read_encoding
+
+    def refresh_from_settings(self):
         self.encoding = settings.file_read_encoding
 
     @property
@@ -54,7 +61,6 @@ class FileMultiEditTool(BaseTool):
         if not isinstance(edit_list, list):
             return {"success": False, "error": "Edits must be a JSON array"}
 
-        root = Path(root_path).resolve()
         results = []
         all_success = True
 
@@ -72,13 +78,21 @@ class FileMultiEditTool(BaseTool):
                 all_success = False
                 continue
 
-            path = (root / file_path).resolve()
-
-            if not str(path).startswith(str(root)):
+            root, path = resolve_workspace_path(root_path, file_path)
+            if path is None:
                 results.append({
                     "file_path": file_path,
                     "success": False,
-                    "error": "Access denied: path is outside workspace"
+                    "error": OUTSIDE_WORKSPACE_ERROR
+                })
+                all_success = False
+                continue
+
+            if is_protected_path(path, root):
+                results.append({
+                    "file_path": file_path,
+                    "success": False,
+                    "error": "Cannot edit protected path"
                 })
                 all_success = False
                 continue

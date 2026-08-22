@@ -3,7 +3,7 @@ from sqlalchemy import (
     String,
     Text,
     DateTime,
-    Boolean
+    ForeignKey
 )
 
 from sqlalchemy.orm import (
@@ -16,6 +16,8 @@ from datetime import datetime, timezone
 from database.base import Base
 
 from pgvector.sqlalchemy import Vector
+
+EMBEDDING_DIMENSION = 768
 
 class Memory(Base):
 
@@ -35,7 +37,7 @@ class Memory(Base):
     )
 
     embedding: Mapped[list] = mapped_column(
-        Vector(768),
+        Vector(EMBEDDING_DIMENSION),
         nullable=True
     )
     
@@ -70,6 +72,7 @@ class Memory(Base):
 
     source_conversation_id: Mapped[int] = mapped_column(
         Integer,
+        ForeignKey("conversations.id", ondelete="SET NULL"),
         nullable=True
     )
 
@@ -93,6 +96,7 @@ class Conversation(Base):
 
     session_id: Mapped[str] = mapped_column(
         String(50),
+        ForeignKey("sessions.id", ondelete="CASCADE"),
         index=True,
         nullable=True
     )
@@ -111,7 +115,7 @@ class Conversation(Base):
     )
 
     embedding: Mapped[list] = mapped_column(
-        Vector(768),
+        Vector(EMBEDDING_DIMENSION),
         nullable=True
     )
 
@@ -182,50 +186,4 @@ class Session(Base):
         String(50),
         nullable=True,
         index=True
-    )
-
-# -----------------------------------------------------------------------------
-
-
-class Agent(Base):
-
-    __tablename__ = "agents"
-
-    id: Mapped[str] = mapped_column(
-        String(50),
-        primary_key=True
-    )
-
-    name: Mapped[str] = mapped_column(
-        String(100)
-    )
-
-    persona_path: Mapped[str] = mapped_column(
-        String(500),
-        nullable=True
-    )
-
-    model: Mapped[str] = mapped_column(
-        String(100),
-        nullable=True
-    )
-
-    allowed_tools: Mapped[str] = mapped_column(
-        Text,
-        nullable=True
-    )
-
-    max_iterations: Mapped[int] = mapped_column(
-        Integer,
-        default=5
-    )
-
-    is_active: Mapped[bool] = mapped_column(
-        Boolean,
-        default=True
-    )
-
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        default=lambda: datetime.now(timezone.utc)
     )

@@ -57,6 +57,20 @@ CATEGORY_WEIGHTS = {
     "fact": 0.0,
 }
 
+# Phrases that produce low-quality memory extractions and should be skipped.
+# These are generic conversational fillers, not real facts about the user.
+FILLER_BLOCKLIST = {
+    "not sure", "unsure", "confused", "wondering", "thinking about it",
+    "not certain", "not quite sure", "trying to figure out",
+    "not really sure", "just curious", "just wondering",
+    "asking", "not sure about", "not sure how", "not sure what",
+    "not sure why", "not sure if", "not sure when", "not sure where",
+    "not sure which", "a bit confused", "a little confused",
+    "kind of confused", "sort of confused", "still figuring out",
+    "currently learning", "just starting", "just beginning",
+    "new to this", "new to it", "getting started", "learning about",
+}
+
 
 class MemoryExtractor:
 
@@ -67,6 +81,11 @@ class MemoryExtractor:
     ):
         self.memory_repo = memory_repo
         self.embedding_service = embedding_service
+        self.log_level = settings.log_level
+        self.dedup_threshold = settings.memory_dedup_threshold
+        self.max_per_message = settings.memory_extraction_max_per_message
+
+    def refresh_from_settings(self):
         self.log_level = settings.log_level
         self.dedup_threshold = settings.memory_dedup_threshold
         self.max_per_message = settings.memory_extraction_max_per_message
@@ -112,7 +131,15 @@ class MemoryExtractor:
                     idx = text.index(pattern) + len(pattern)
                     content = text[idx:].strip().rstrip(".,!?;:")
 
-                    if len(content) < 3:
+                    if len(content) < 10:
+                        continue
+
+                    # Skip filler/non-memorable content
+                    content_lower = content.lower()
+                    if any(filler in content_lower for filler in FILLER_BLOCKLIST):
+                        logger.debug(
+                            "Memory skipped (filler content): '%s'", content[:50]
+                        )
                         continue
 
                     if self._is_duplicate(content, category, agent_id=agent_id):

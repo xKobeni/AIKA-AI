@@ -1,11 +1,36 @@
 import json
 import os
 import logging
+import re
 from datetime import datetime
 
 from tools.tool_permission import ToolPermission
 
 logger = logging.getLogger(__name__)
+
+_SENSITIVE_KEYS = {
+    "api_key", "apikey", "authorization", "content", "credential",
+    "new_text", "old_text", "password", "secret", "token",
+}
+_SECRET_VALUE_PATTERN = re.compile(
+    r"(?i)(bearer\s+|(?:api[_-]?key|password|secret|token)\s*[=:]\s*)"
+    r"([^\s,;]+)"
+)
+
+
+def _redact_sensitive(value, key=None):
+    if key and key.lower() in _SENSITIVE_KEYS:
+        return "[REDACTED]"
+    if isinstance(value, dict):
+        return {
+            item_key: _redact_sensitive(item_value, str(item_key))
+            for item_key, item_value in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_redact_sensitive(item) for item in value]
+    if isinstance(value, str):
+        return _SECRET_VALUE_PATTERN.sub(r"\1[REDACTED]", value)
+    return value
 
 
 class ToolManager:
@@ -54,7 +79,10 @@ class ToolManager:
         if tool_name not in self.tools:
             return False, f"Unknown tool: {tool_name}"
 
-        param_str = json.dumps(parameters)
+        try:
+            param_str = json.dumps(parameters, default=str)
+        except Exception:
+            return False, "Tool parameters could not be serialized"
         if len(param_str) > settings.tool_call_max_params_length:
             return False, f"Parameters too long ({len(param_str)} chars)"
 
@@ -69,7 +97,9 @@ class ToolManager:
         if not self.is_high_permission(tool_name):
             return True
 
-        param_preview = json.dumps(parameters, indent=2)
+        param_preview = json.dumps(
+            _redact_sensitive(parameters), indent=2, default=str
+        )
         if len(param_preview) > 500:
             param_preview = param_preview[:500] + "..."
 
@@ -91,7 +121,9 @@ class ToolManager:
         if not settings.audit_log_enabled:
             return
 
-        param_preview = json.dumps(parameters)
+        param_preview = json.dumps(
+            _redact_sensitive(parameters), default=str
+        )
         if len(param_preview) > 200:
             param_preview = param_preview[:200] + "..."
 
@@ -145,8 +177,19 @@ class ToolManager:
             }
 
         tool = self.get_tool(tool_name)
-        result = tool.execute(**kwargs)
+        try:
+            result = tool.execute(**kwargs)
+            if not isinstance(result, dict):
+                result = {
+                    "success": False,
+                    "error": "Tool returned an invalid result"
+                }
+        except Exception as exc:
+            logger.exception("Tool '%s' execution failed", tool_name)
+            result = {
+                "success": False,
+                "error": f"Tool execution failed: {type(exc).__name__}"
+            }
 
         self._audit_log(tool_name, kwargs, result, agent_id=agent_id)
-
         return result

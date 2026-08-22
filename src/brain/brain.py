@@ -22,6 +22,7 @@ from handlers.memory_extractor import MemoryExtractor
 from handlers.tool_response_handler import ToolResponseHandler
 from handlers.tool_handler import ToolHandler
 from handlers.config_handler import ConfigHandler
+from handlers.response_finalizer import ResponseFinalizer
 
 from brain.context_manager import ContextManager
 from brain.router import Router
@@ -29,26 +30,7 @@ from brain.agent_loop import AgentLoop
 from brain.model_router import ModelRouter
 
 from tools.tool_manager import ToolManager
-from tools.calculator_tool import CalculatorTool
-from tools.memory_search_tool import MemorySearchTool
-from tools.file_search_tool import FileSearchTool
-from tools.file_read_tool import FileReadTool
-from tools.file_write_tool import FileWriteTool
-from tools.file_delete_tool import FileDeleteTool
-from tools.file_append_tool import FileAppendTool
-from tools.file_edit_tool import FileEditTool
-from tools.file_grep_tool import FileGrepTool
-from tools.file_mkdir_tool import FileMkdirTool
-from tools.web_search_tool import WebSearchTool
-from tools.web_crawl_tool import WebCrawlTool
-from tools.shell_tool import ShellTool
-from tools.app_launcher_tool import AppLauncherTool
-from tools.folder_tool import FolderTool
-from tools.system_info_tool import SystemInfoTool
-from tools.git_tool import GitTool
-from tools.file_read_range_tool import FileReadRangeTool
-from tools.file_multi_edit_tool import FileMultiEditTool
-from tools.test_runner_tool import TestRunnerTool
+from tools.default_tools import register_default_tools
 
 from llm.embedding_service import EmbeddingService
 
@@ -118,80 +100,9 @@ class AikaBrain:
         
         # Tool Manager
         self.tool_manager = ToolManager()
-        self.tool_manager.register_tool(
-            CalculatorTool()
-        )
-        self.tool_manager.register_tool(
-            FileSearchTool()
-        )
-        self.tool_manager.register_tool(
-            FileReadTool()
-        )
-
-        self.tool_manager.register_tool(
-            FileWriteTool()
-        )
-
-        self.tool_manager.register_tool(
-            FileDeleteTool()
-        )
-
-        self.tool_manager.register_tool(
-            FileAppendTool()
-        )
-
-        self.tool_manager.register_tool(
-            FileEditTool()
-        )
-
-        self.tool_manager.register_tool(
-            FileGrepTool()
-        )
-
-        self.tool_manager.register_tool(
-            FileMkdirTool()
-        )
-
-        self.tool_manager.register_tool(
-            WebSearchTool()
-        )
-        self.tool_manager.register_tool(
-            WebCrawlTool()
-        )
-
-        self.tool_manager.register_tool(
-            MemorySearchTool(
-                self.memory_retrieval_service
-            )
-        )
-
-        self.tool_manager.register_tool(
-            ShellTool()
-        )
-
-        self.tool_manager.register_tool(
-            AppLauncherTool()
-        )
-
-        self.tool_manager.register_tool(
-            FolderTool()
-        )
-
-        self.tool_manager.register_tool(
-            SystemInfoTool()
-        )
-
-        self.tool_manager.register_tool(
-            GitTool()
-        )
-        self.tool_manager.register_tool(
-            FileReadRangeTool()
-        )
-        self.tool_manager.register_tool(
-            FileMultiEditTool()
-        )
-        self.tool_manager.register_tool(
-            TestRunnerTool()
+        register_default_tools(
+            self.tool_manager,
+            self.memory_retrieval_service,
         )
 
         self.tool_response_handler = ToolResponseHandler(
@@ -212,7 +123,7 @@ class AikaBrain:
         )
 
         # Intent Classifier
-        self.intent_classifier = LLMIntentClassifier()
+        self.intent_classifier = LLMIntentClassifier(llm=self.llm)
 
         # Decision Engine (fallback)
         self.decision_engine = DecisionEngine(
@@ -220,7 +131,7 @@ class AikaBrain:
         )
 
         # LLM Tool Router (new)
-        self.llm_tool_router = LLMToolRouter(self.tool_manager)
+        self.llm_tool_router = LLMToolRouter(self.tool_manager, llm=self.llm)
 
         # Handlers
         self.memory_handler = MemoryHandler(
@@ -234,6 +145,12 @@ class AikaBrain:
             agent_id=self.current_agent_id
         )
 
+        self.response_finalizer = ResponseFinalizer(
+            self.conversation_repo,
+            embedding_service=self.embedding_service,
+            session_repo=self.session_repo,
+        )
+
         # Chat Handler
         self.chat_handler = ChatHandler(
             self.conversation_repo,
@@ -245,12 +162,14 @@ class AikaBrain:
             embedding_service=self.embedding_service,
             session_repo=self.session_repo,
             model_router=self.model_router,
-            agent_registry=self.agent_registry
+            agent_registry=self.agent_registry,
+            response_finalizer=self.response_finalizer,
         )
 
         # Config Handler
         self.config_handler = ConfigHandler(
-            agent_registry=self.agent_registry
+            agent_registry=self.agent_registry,
+            refresh_callback=self._refresh_from_settings,
         )
 
         # Router
@@ -292,6 +211,126 @@ class AikaBrain:
         self._executor = ThreadPoolExecutor(
             max_workers=4,
             thread_name_prefix="aika"
+        )
+        self._closed = False
+
+    def close(self, wait=True):
+        if getattr(self, "_closed", False):
+            return
+        self._closed = True
+        executor = getattr(self, "_executor", None)
+        if executor is not None:
+            executor.shutdown(wait=wait, cancel_futures=not wait)
+        for service in (
+            getattr(self, "embedding_service", None),
+            getattr(self, "llm", None),
+        ):
+            close = getattr(service, "close", None)
+            if close:
+                close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close(wait=True)
+
+    def _refresh_from_settings(self, changed_keys=None):
+        """Refresh existing components after runtime configuration changes."""
+        refreshables = (
+            self.llm,
+            self.embedding_service,
+            self.model_router,
+            self.conversation_repo,
+            self.context_manager,
+            self.memory_handler,
+            self.memory_extractor,
+            self.chat_handler,
+            self.llm_tool_router,
+            self.intent_classifier,
+            self.planner,
+            self.executor,
+            self.tool_handler,
+            getattr(self, "agent_loop", None),
+        )
+        for component in refreshables:
+            refresh = getattr(component, "refresh_from_settings", None)
+            if refresh:
+                refresh()
+
+        for tool in self.tool_manager.tools.values():
+            refresh = getattr(tool, "refresh_from_settings", None)
+            if refresh:
+                refresh()
+
+        level = getattr(logging, settings.log_level.upper(), logging.DEBUG)
+        logging.getLogger().setLevel(level)
+        logger.info(
+            "Refreshed runtime settings%s",
+            f" for {sorted(changed_keys)}" if changed_keys else "",
+        )
+
+    def _schedule_memory_extraction(
+        self,
+        user_message,
+        source_conversation_id
+    ):
+        if source_conversation_id is None:
+            return
+        if getattr(self, "_closed", False):
+            logger.warning("Memory extraction skipped because AIKA is closed")
+            return
+
+        self._executor.submit(
+            self.memory_extractor.extract_memory,
+            user_message,
+            source_conversation_id=source_conversation_id,
+            agent_id=self.current_agent_id
+        )
+        logger.debug("Memory extraction -> background")
+
+    def _complete_response(self, user_message, metadata=None, source_id=None):
+        conversation_id = (
+            metadata.user_conversation_id
+            if metadata is not None
+            else source_id
+        )
+        self._schedule_memory_extraction(user_message, conversation_id)
+
+    def _finalize_agent_response(
+        self, response, user_conversation, model_used, elapsed_seconds=None
+    ):
+        finalizer = getattr(self, "response_finalizer", None)
+        if finalizer is None:
+            finalizer = ResponseFinalizer(
+                self.conversation_repo,
+                embedding_service=self.embedding_service,
+                session_repo=self.session_repo,
+            )
+            self.response_finalizer = finalizer
+        metrics = {}
+        llm = getattr(self, "llm", None)
+        get_metrics = getattr(llm, "get_last_metrics", None)
+        if callable(get_metrics):
+            metrics = get_metrics() or {}
+        if not isinstance(metrics, dict):
+            metrics = {}
+        response_tokens = metrics.get(
+            "response_tokens", max(1, len(response) // 4) if response else 0
+        )
+        response_time_ms = metrics.get("response_time_ms")
+        if response_time_ms is None and elapsed_seconds is not None:
+            response_time_ms = int(elapsed_seconds * 1000)
+
+        return finalizer.finalize(
+            response,
+            user_conversation_id=user_conversation.id,
+            session_id=self.current_session.id,
+            agent_id=self.current_agent_id,
+            model_used=model_used,
+            response_time_ms=response_time_ms,
+            prompt_tokens=metrics.get("prompt_tokens"),
+            response_tokens=response_tokens,
         )
 
     def _generate_session_summary(self, session_id):
@@ -649,6 +688,8 @@ class AikaBrain:
             return response
 
         decision = self.decision_engine.decide(user_message)
+        source_conversation_id = None
+        response_metadata = None
 
         if decision == Action.NEW_SESSION:
             response = self._handle_new_session()
@@ -665,6 +706,17 @@ class AikaBrain:
         elif decision == Action.CONFIGURE:
             response = self.config_handler.handle(user_message)
             logger.debug("Route: CONFIGURE (%.2fs)", time.time() - t0)
+        elif decision == Action.CHAT:
+            response = self.chat_handler.chat(
+                user_message,
+                intent=decision.value,
+                agent_id=self.current_agent_id
+            )
+            source_conversation_id = self.chat_handler._last_user_conv_id
+            response_metadata = getattr(
+                self.chat_handler, "last_response_metadata", None
+            )
+            logger.debug("Route: CHAT (%.2fs)", time.time() - t0)
         else:
             user_embedding = None
             try:
@@ -679,30 +731,21 @@ class AikaBrain:
                 embedding=user_embedding,
                 agent_id=self.current_agent_id,
             )
+            source_conversation_id = user_conv.id
 
+            agent_started = time.time()
             response = self.agent_loop.run(
                 user_message,
                 agent_id=self.current_agent_id
             )
+            agent_elapsed = time.time() - agent_started
 
-            response_embedding = None
-            try:
-                response_embedding = self.embedding_service.generate_embedding(response)
-            except Exception as e:
-                logger.warning("Failed to generate response embedding: %s", e)
-
-            self.conversation_repo.create(
-                role="assistant",
-                content=response,
-                session_id=self.current_session.id,
-                embedding=response_embedding,
-                model_used=settings.chat_model,
-                agent_id=self.current_agent_id,
+            response_metadata = self._finalize_agent_response(
+                response,
+                user_conv,
+                self.agent_loop.last_model_used,
+                elapsed_seconds=agent_elapsed,
             )
-
-            self.session_repo.increment_message_count(self.current_session.id, 2)
-            self.session_repo.update_last_active(self.current_session.id)
-            self.conversation_repo.trim()
 
             logger.debug("Route: AGENT_LOOP (%.2fs)", time.time() - t0)
 
@@ -711,13 +754,11 @@ class AikaBrain:
         logger.debug("%s", "-" * 45)
         logger.debug("Decision: %s | Total: %.2fs", decision.value, total)
 
-        self._executor.submit(
-            self.chat_handler.memory_extractor.extract_memory,
+        self._complete_response(
             user_message,
-            source_conversation_id=getattr(self, '_last_user_conv_id', None),
-            agent_id=self.current_agent_id
+            metadata=response_metadata,
+            source_id=source_conversation_id,
         )
-        logger.debug("Memory extraction -> background")
 
         return response
 
@@ -805,6 +846,21 @@ class AikaBrain:
             yield self.config_handler.handle(user_message)
             logger.debug("Route: CONFIGURE (%.2fs)", time.time() - t0)
             return
+        elif decision == Action.CHAT:
+            yield from self.chat_handler.chat_stream(
+                user_message,
+                intent=decision.value,
+                agent_id=self.current_agent_id
+            )
+            self._complete_response(
+                user_message,
+                metadata=getattr(
+                    self.chat_handler, "last_response_metadata", None
+                ),
+                source_id=self.chat_handler._last_user_conv_id,
+            )
+            logger.debug("Route: CHAT_STREAM (%.2fs)", time.time() - t0)
+            return
 
         user_embedding = None
         try:
@@ -812,7 +868,7 @@ class AikaBrain:
         except Exception as e:
             logger.warning("Failed to generate user embedding: %s", e)
 
-        self.conversation_repo.create(
+        user_conv = self.conversation_repo.create(
             role="user",
             content=user_message,
             session_id=self.current_session.id,
@@ -821,6 +877,7 @@ class AikaBrain:
         )
 
         response_chunks = []
+        agent_started = time.time()
         for chunk in self.agent_loop.run_stream(
             user_message,
             agent_id=self.current_agent_id
@@ -829,25 +886,14 @@ class AikaBrain:
             yield chunk
 
         response = "".join(response_chunks)
+        agent_elapsed = time.time() - agent_started
 
-        response_embedding = None
-        try:
-            response_embedding = self.embedding_service.generate_embedding(response)
-        except Exception as e:
-            logger.warning("Failed to generate response embedding: %s", e)
-
-        self.conversation_repo.create(
-            role="assistant",
-            content=response,
-            session_id=self.current_session.id,
-            embedding=response_embedding,
-            model_used=settings.chat_model,
-            agent_id=self.current_agent_id,
+        response_metadata = self._finalize_agent_response(
+            response,
+            user_conv,
+            self.agent_loop.last_model_used,
+            elapsed_seconds=agent_elapsed,
         )
-
-        self.session_repo.increment_message_count(self.current_session.id, 2)
-        self.session_repo.update_last_active(self.current_session.id)
-        self.conversation_repo.trim()
 
         logger.debug("Route: AGENT_LOOP (%.2fs)", time.time() - t0)
 
@@ -855,10 +901,7 @@ class AikaBrain:
         logger.debug("%s", "-" * 45)
         logger.debug("Decision: %s | Total: %.2fs", decision.value, total)
 
-        self._executor.submit(
-            self.chat_handler.memory_extractor.extract_memory,
+        self._complete_response(
             user_message,
-            source_conversation_id=getattr(self, '_last_user_conv_id', None),
-            agent_id=self.current_agent_id
+            metadata=response_metadata,
         )
-        logger.debug("Memory extraction -> background")

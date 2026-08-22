@@ -380,7 +380,9 @@ System-level tooling with granular enable/disable controls.
 
 ### Shell Execution
 
-Runs arbitrary shell commands via `subprocess`.
+Runs commands as argument arrays with `shell=False` by default. Shell operators
+such as pipes, redirects, command chaining, and substitutions are rejected in
+safe mode.
 
 ```
 > run pip install requests
@@ -390,8 +392,13 @@ Runs arbitrary shell commands via `subprocess`.
 
 **Security features:**
 - `SHELL_ENABLED` toggle (default: `true`)
+- `SHELL_UNSAFE_ENABLED` explicit opt-in for commands that require the system shell (default: `false`)
+- `SHELL_ALLOWED_WORKDIRS` restricts working directories to approved locations under the workspace
 - `SHELL_TIMEOUT` kills long-running commands (default: 30s)
 - `SHELL_BLOCKED_KEYWORDS` prevents dangerous commands (13 patterns including rm -rf, format, shutdown, reg add, net user, bcdedit, etc.)
+
+Unsafe mode remains a HIGH-permission operation and still passes through
+confirmation, blocklist, audit logging, timeout, and working-directory checks.
 
 ### App Launcher
 
@@ -611,7 +618,7 @@ Quick detection also handles obvious greetings and simple questions without call
 | Variable | Default | Description |
 |---|---|---|
 | `MEMORY_RETRIEVAL_LIMIT` | `8` | Max memories returned per query |
-| `MEMORY_CANDIDATE_MULTIPLIER` | `3` | Candidate pool multiplier |
+| `MEMORY_CANDIDATE_MULTIPLIER` | `3` | Repository candidate pool multiplier (applied once) |
 | `MEMORY_MIN_SCORE` | `0.3` | Minimum similarity score |
 | `MEMORY_RECENCY_HALF_LIFE` | `720` | Recency decay half-life (hours) |
 | `MEMORY_SIM_WEIGHT` | `0.50` | Similarity score weight |
@@ -629,7 +636,7 @@ Quick detection also handles obvious greetings and simple questions without call
 
 | Variable | Default | Description |
 |---|---|---|
-| `MAX_CONTEXT_TOKENS` | `2000` | Max tokens for memory context |
+| `MAX_CONTEXT_TOKENS` | `6000` | Approximate maximum for the complete assembled chat prompt |
 | `MAX_PROFILE_PER_CATEGORY` | `2` | Max profile entries per category |
 | `RECENT_CONVERSATIONS_COUNT` | `10` | Recent turns included in context |
 
@@ -652,6 +659,14 @@ Quick detection also handles obvious greetings and simple questions without call
 | `PLAN_WEB_SEARCH_MAX_RESULTS` | `5` | Research web search count |
 | `PLAN_TOP_SOURCES_COUNT` | `3` | Top sources to crawl |
 | `CRAWL_CONTENT_MAX_CHARS` | `2000` | Max chars per crawled page |
+| `WEB_CRAWL_MAX_WORKERS` | `4` | Maximum concurrent workers for multi-URL crawling |
+| `WEB_CRAWL_MAX_URLS` | `10` | Maximum URLs accepted by one crawl request |
+| `WEB_CRAWL_MAX_REDIRECTS` | `5` | Maximum validated HTTP redirects |
+| `WEB_CRAWL_TIMEOUT` | `15` | HTTP fetch timeout in seconds |
+| `WEB_CRAWL_MAX_RESPONSE_BYTES` | `5000000` | Maximum downloaded response size |
+| `WEB_CRAWL_ALLOW_PRIVATE_NETWORK` | `false` | Allow private/local crawler destinations (unsafe) |
+| `FILE_SEARCH_MAX_RESULTS` | `20` | Maximum filename search results |
+| `FILE_SCAN_MAX_FILES` | `10000` | Maximum files inspected by one search or grep request |
 
 ### Tools
 
@@ -665,7 +680,9 @@ Quick detection also handles obvious greetings and simple questions without call
 | Variable | Default | Description |
 |---|---|---|
 | `SHELL_ENABLED` | `true` | Enable shell execution |
+| `SHELL_UNSAFE_ENABLED` | `false` | Permit explicit `shell=True` execution |
 | `SHELL_TIMEOUT` | `30` | Command timeout (seconds) |
+| `SHELL_ALLOWED_WORKDIRS` | `.` | Allowed working directories beneath the workspace |
 | `SHELL_BLOCKED_KEYWORDS` | `rm -rf,format,...` | Dangerous command patterns |
 | `APP_LAUNCHER_ENABLED` | `true` | Enable app launcher |
 | `APP_LAUNCHER_UWP_ENABLED` | `true` | Enable UWP app scanning |

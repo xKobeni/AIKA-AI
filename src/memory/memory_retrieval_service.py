@@ -38,7 +38,8 @@ class MemoryRetrievalService:
         self,
         query,
         limit=5,
-        agent_id=None
+        agent_id=None,
+        query_embedding=None,
     ):
 
         if not query:
@@ -52,17 +53,25 @@ class MemoryRetrievalService:
             return self.retrieve_profile(agent_id=agent_id)
 
         t1 = time.time()
-        query_embedding = (
-            self.embedding_service
-            .generate_embedding(query)
-        )
+        if query_embedding is None:
+            query_embedding = (
+                self.embedding_service
+                .generate_embedding(query)
+            )
         t_embed = time.time() - t1
+
+        if query_embedding is None:
+            logger.warning(
+                "Memory retrieval skipped because no query embedding was available."
+            )
+            return []
 
         t2 = time.time()
         memories = self.memory_repo.semantic_search(
             query_embedding,
-            limit=settings.memory_retrieval_limit * settings.memory_candidate_multiplier,
-            agent_id=agent_id
+            limit=limit * settings.memory_candidate_multiplier,
+            agent_id=agent_id,
+            candidate_multiplier=1,
         )
         t_search = time.time() - t2
 

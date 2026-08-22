@@ -125,7 +125,8 @@ class MemoryRepository:
         query_embedding,
         limit=None,
         min_score=None,
-        agent_id=None
+        agent_id=None,
+        candidate_multiplier=None,
     ):
 
         if limit is None:
@@ -135,7 +136,9 @@ class MemoryRepository:
 
         with db_session() as db:
 
-            candidate_limit = limit * settings.memory_candidate_multiplier
+            if candidate_multiplier is None:
+                candidate_multiplier = settings.memory_candidate_multiplier
+            candidate_limit = limit * max(1, candidate_multiplier)
 
             query = (
                 db.query(Memory)

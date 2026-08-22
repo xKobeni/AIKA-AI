@@ -34,14 +34,31 @@ class ContextManager:
         self.summaries_count = settings.context_session_summaries_count
         self.cross_session_count = settings.context_cross_session_conversations
 
+    def refresh_from_settings(self):
+        self.max_context_tokens = settings.max_context_tokens
+        self.retrieval_limit = settings.memory_retrieval_limit
+        self.recent_count = settings.recent_conversations_count
+        self.summaries_count = settings.context_session_summaries_count
+        self.cross_session_count = settings.context_cross_session_conversations
+
     def build_context(
         self,
         user_message,
         session_id=None,
-        agent_id=None
+        agent_id=None,
+        query_embedding=None,
     ):
 
         t0 = time.time()
+
+        if query_embedding is None:
+            try:
+                query_embedding = self.embedding_service.generate_embedding(
+                    user_message
+                )
+            except Exception:
+                logger.debug("Context embedding generation failed", exc_info=True)
+                query_embedding = None
 
         # -------------------------
         # Retrieve Memories
@@ -54,7 +71,8 @@ class ContextManager:
             result = self.retrieval_service.retrieve(
                 user_message,
                 limit=self.retrieval_limit,
-                agent_id=agent_id
+                agent_id=agent_id,
+                query_embedding=query_embedding,
             )
 
             if isinstance(result, str):
@@ -64,26 +82,22 @@ class ContextManager:
 
         else:
 
-            query_embedding = (
-                self.embedding_service
-                .generate_embedding(user_message)
-            )
-
-            memories = (
-                self.memory_repo
-                .semantic_search(
-                    query_embedding,
-                    limit=self.retrieval_limit + 2,
-                    agent_id=agent_id
+            if query_embedding is not None:
+                memories = (
+                    self.memory_repo
+                    .semantic_search(
+                        query_embedding,
+                        limit=self.retrieval_limit + 2,
+                        agent_id=agent_id
+                    )
                 )
-            )
 
-            memories = [
-                m for m in memories
-                if getattr(m, '_score', 0) >= settings.memory_min_score
-            ]
+                memories = [
+                    m for m in memories
+                    if getattr(m, '_score', 0) >= settings.memory_min_score
+                ]
 
-            memories = memories[:self.retrieval_limit]
+                memories = memories[:self.retrieval_limit]
 
         # -------------------------
         # Update Access Tracking
@@ -149,13 +163,14 @@ class ContextManager:
         # Session Summaries (cross-session)
         # -------------------------
 
+        past_sessions = []
         if self.session_repo and self.summaries_count > 0:
 
             past_sessions = self.session_repo.get_recent_with_summaries(
                 limit=self.summaries_count,
                 exclude_session_id=session_id,
                 agent_id=agent_id
-            )
+            ) or []
 
             if past_sessions:
                 summary_lines = []
@@ -176,6 +191,7 @@ class ContextManager:
         # -------------------------
 
         cross_session_context = ""
+        past_conversations = []
 
         if (self.session_repo
                 and self.conversation_repo
@@ -183,20 +199,17 @@ class ContextManager:
                 and session_id):
 
             try:
-                query_embedding = (
-                    self.embedding_service
-                    .generate_embedding(user_message)
-                )
-
-                past_conversations = (
-                    self.conversation_repo
-                    .search_across_sessions(
-                        query_embedding,
-                        current_session_id=session_id,
-                        limit=self.cross_session_count,
-                        agent_id=agent_id
+                if query_embedding is not None:
+                    past_conversations = (
+                        self.conversation_repo
+                        .search_across_sessions(
+                            query_embedding,
+                            current_session_id=session_id,
+                            limit=self.cross_session_count,
+                            agent_id=agent_id
+                        )
                     )
-                )
+                    past_conversations = past_conversations or []
 
                 if past_conversations:
                     lines = []
@@ -258,7 +271,7 @@ class ContextManager:
             )
 
         conversation_context = "\n".join([
-            f"{c.role}: {c.content}"
+            f"{'User' if c.role == 'user' else 'AIKA'}: {c.content}"
             for c in conversations
         ])
 

@@ -16,7 +16,7 @@ AIKA AI/
 ├── src/
 │   ├── main.py                              # Entry point (CLI loop)
 │   ├── create_tables.py                     # DB table initialization
-│   ├── migrate_db.py                        # DB migration script (new columns/tables)
+│   ├── migrate_db.py                        # Versioned migration status/dry-run/apply CLI
 │   ├── config/
 │   │   ├── __init__.py
 │   │   ├── settings.py                      # Settings from .env
@@ -72,6 +72,7 @@ AIKA AI/
 │   ├── handlers/
 │   │   ├── __init__.py
 │   │   ├── chat_handler.py                  # Generates chat responses (sync + streaming)
+│   │   ├── response_finalizer.py             # Shared response persistence, metrics, and retention
 │   │   ├── memory_handler.py                # Memory query handler
 │   │   ├── memory_extractor.py              # Background memory extraction
 │   │   ├── tool_handler.py                  # Routes to tool execution
@@ -80,6 +81,7 @@ AIKA AI/
 │   ├── tools/
 │   │   ├── __init__.py
 │   │   ├── tool_manager.py                  # Registry & execution (confirmation + audit)
+│   │   ├── default_tools.py                  # Default tool composition/registration
 │   │   ├── tool_permission.py               # Permission levels (LOW/MEDIUM/HIGH)
 │   │   ├── tool_category.py                 # Tool categorization
 │   │   ├── base_tool.py                     # Abstract base class (get_native_schema)
@@ -111,15 +113,17 @@ AIKA AI/
 │   │   ├── plan.py                          # Plan data model
 │   │   ├── plan_step.py                     # Individual step model
 │   │   └── execution_context.py             # Execution state tracking
-│   └── research/
-│       ├── __init__.py
-│       ├── search_provider.py               # Web search abstraction
-│       ├── content_processor.py             # Cleans & chunks content
-│       ├── source_ranker.py                 # Ranks sources by relevance
-│       └── report_generator.py              # Generates research reports
+│   ├── research/
+│   │   ├── __init__.py
+│   │   ├── search_provider.py               # Web search abstraction
+│   │   ├── content_processor.py             # Cleans & chunks content
+│   │   ├── source_ranker.py                 # Ranks sources by relevance
+│   │   └── report_generator.py              # Generates research reports
+│   └── models/
+│       └── response_metadata.py              # Internal finalized-response metadata
 ├── tests/
 │   ├── __init__.py
-│   ├── test_all.py                         # Comprehensive test suite (108 tests, 15 categories)
+│   ├── test_all.py                         # Standalone mocked and optional live test runner
 │   ├── demo.py                             # Guided feature tour (11 sections, mocked responses)
 │   ├── test_streaming.py                    # Streaming response tests
 │   ├── test_native_tool_calling.py          # Native Ollama tool calling tests
@@ -131,6 +135,7 @@ AIKA AI/
 │   └── ...                                  # Other existing tests
 ├── data/                # Runtime memory/conversation storage (git-ignored)
 ├── logs/                # Execution + audit logs (git-ignored)
+├── Trash/               # Archived legacy JSON-storage implementation (not used at runtime)
 └── .venv/               # Virtual environment (git-ignored)
 ```
 
@@ -176,6 +181,9 @@ AgentLoop.run() / run_stream()
 Response (streamed token-by-token or returned)
     │
     ▼
+ResponseFinalizer (persist response, update metrics, enforce retention)
+    │
+    ▼
 Background: MemoryExtractor.extract_memory()
 ```
 
@@ -211,7 +219,7 @@ Background: MemoryExtractor.extract_memory()
 - **`AgentRegistry`** — Manages agent profiles with JSON persistence (`data/agents.json`). Supports create, update, set_model, set_persona. Auto-discovers persona files from `src/config/personas/`.
 
 ### Brain (`src/brain/`)
-- **`AikaBrain`** — Top-level orchestrator. Initializes all services, repositories, handlers, and tools. Exposes `process(user_message)` and `process_stream(user_message)`. Manages session lifecycle, agent commands, and multi-agent orchestration.
+- **`AikaBrain`** — Top-level composition root and orchestrator. Initializes services, repositories, handlers, and the default tool set. Exposes `process(user_message)` and `process_stream(user_message)`, manages session lifecycle and multi-agent orchestration, and owns explicit `close()`/context-manager lifecycle cleanup.
 - **`DecisionEngine`** — Uses quick detection for obvious greetings (skips LLM) and falls back to the intent classifier for ambiguous messages. Detects delegation and orchestration intents.
 - **`AgentLoop`** — LLM-driven tool chaining loop. Supports native Ollama tool calling (`tools=` parameter) with fallback to text-parsed JSON. Streams responses via `_run_llm_loop_stream()`. Feeds tool results back with proper `role: "tool"` messages.
 - **`Orchestrator`** — Coordinates multi-agent workflows: `delegate()`, `chain()`, `parallel()`, `team()`. Uses ThreadPoolExecutor for concurrent agent execution.
@@ -222,12 +230,12 @@ Background: MemoryExtractor.extract_memory()
 - **`LLMToolRouter`** — Routes tool selection via LLM. Supports native tool calling (passes `tools=` to Ollama) with legacy JSON fallback.
 - **`ToolResultFormatter`** — Formats tool results for LLM context, with truncation and per-tool extractors.
 - **`ReflectionEngine`** — Evaluates task completion using fast model. Has fail-fast for known error patterns.
-- **`ContextManager`** — Builds context windows by merging conversation history (scoped to current session), relevant memories, and profile data. Accepts `agent_id` for agent-scoped context.
+- **`ContextManager`** — Builds context windows by merging conversation history (scoped to current session), relevant memories, and profile data. Reuses one request embedding across memory and cross-session retrieval. The final chat assembler budgets the complete prompt rather than memory sections alone.
 - **`IntentClassifier`** — Uses the fast LLM model to classify user intent from a set of known intents.
 
 ### LLM (`src/llm/`)
-- **`OllamaClient`** — Wraps the `ollama` Python library. Provides sync methods (`generate()`, `generate_with_model()`) and streaming generators (`generate_stream()`, `chat_stream()`).
-- **`EmbeddingService`** — Generates vector embeddings via Ollama's embedding API.
+- **`OllamaClient`** — Wraps the `ollama` Python library. Provides sync methods (`generate()`, `generate_with_model()`) and streaming generators (`generate_stream()`, `chat_stream()`). Captures exact Ollama prompt-token, response-token, and model-duration metrics when the server returns them.
+- **`EmbeddingService`** — Generates vector embeddings via Ollama's embedding API. Both LLM services expose `close()` so their HTTP resources are released during brain shutdown.
 
 ### Memory (`src/memory/`)
 - **`MemoryRetrievalService`** — Hybrid retrieval combining semantic (cosine similarity), recency, importance, access frequency, and profile matching. Accepts `agent_id` for agent-scoped retrieval.
@@ -242,10 +250,13 @@ Background: MemoryExtractor.extract_memory()
 
 ### Tools (`src/tools/`)
 - **`ToolManager`** — Registry of all available tools. Includes confirmation flow for HIGH permission tools (`TOOL_CALL_CONFIRM_HIGH`), audit logging (`AUDIT_LOG_ENABLED`), and `get_native_tool_schemas()` for Ollama's function calling API.
+- **`default_tools.py`** — Keeps construction of the built-in tool set outside `AikaBrain`, reducing composition-root coupling while preserving the existing registry and tool interfaces.
 - **`base_tool`** — Abstract base class with `execute(input) → result`, `get_schema()`, and `get_native_schema()` (OpenAI-compatible format).
 - **`ToolPermission`** — Three-tier enum: LOW, MEDIUM, HIGH.
 - **Built-in tools:** Calculator, File Search, File Read, File Read Range, File Write (protected paths), File Edit, File Multi-Edit, File Delete (protected paths), File Append, File Grep, File Mkdir, Web Search, Web Crawl, Memory Search, Shell (strengthened blocklist), App Launcher, Folder, System Info, Git, Test Runner.
-- **`AppRegistry`** — System-wide application scanner (Registry `App Paths`, Start Menu `.lnk` parsing via `pywin32`, UWP via `Get-StartApps`). Used as fallback by the app launcher tool.
+- **Bounded scans and guarded crawling:** File search/grep prune dependency and cache directories and enforce a maximum inspected-file count. Multi-URL crawling uses a bounded worker pool. HTTP fetches validate schemes, DNS addresses, response sizes, and every redirect before Crawl4AI processes the content offline.
+- **Safe shell execution:** Commands use argument arrays and `shell=False` by default. Explicit unsafe mode is disabled by default, and all working directories must remain in configured workspace subdirectories.
+- **`AppRegistry`** — Windows-only application scanner (Registry `App Paths`, Start Menu `.lnk` parsing via `pywin32`, UWP via `Get-StartApps`). Non-Windows platforms skip these capabilities cleanly; `pywin32` is installed only on Windows.
 
 ### Planner (`src/planner/`)
 - **`ExecutionPlanner`** — Decomposes complex user requests into a sequence of steps.
@@ -253,6 +264,7 @@ Background: MemoryExtractor.extract_memory()
 
 ### Handlers (`src/handlers/`)
 - **`ChatHandler`** — Generates responses using the LLM, augmented with context. Provides both sync (`chat()`) and streaming (`chat_stream()`) methods. Uses model router, agent persona, and agent-scoped context.
+- **`ResponseFinalizer`** — Shared post-response pipeline used by synchronous and streaming flows. Stores the assistant response and embedding, updates session metrics, applies conversation retention, and returns structured `ResponseMetadata` for downstream memory extraction.
 - **`MemoryHandler`** — Responds to memory queries and manages memory retrieval. Accepts `agent_id`.
 - **`MemoryExtractor`** — Asynchronously extracts and stores memories from conversations. Links extracted memories to the source conversation via `source_conversation_id`. Accepts `agent_id`.
 - **`ToolHandler`** — Delegates tool requests to the tool manager.

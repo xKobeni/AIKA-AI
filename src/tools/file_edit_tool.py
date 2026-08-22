@@ -1,8 +1,12 @@
-from pathlib import Path
 from tools.base_tool import BaseTool
 from tools.tool_category import ToolCategory
 from tools.tool_permission import ToolPermission
 from config.settings import settings
+from tools.path_security import (
+    OUTSIDE_WORKSPACE_ERROR,
+    is_protected_path,
+    resolve_workspace_path,
+)
 
 
 class FileEditTool(BaseTool):
@@ -12,6 +16,9 @@ class FileEditTool(BaseTool):
     permission = ToolPermission.MEDIUM
 
     def __init__(self):
+        self.encoding = settings.file_read_encoding
+
+    def refresh_from_settings(self):
         self.encoding = settings.file_read_encoding
 
     @property
@@ -64,14 +71,15 @@ class FileEditTool(BaseTool):
         if root_path is None:
             root_path = settings.file_search_root_path
 
-        root = Path(root_path).resolve()
-        path = (root / file_path).resolve()
-
-        if not str(path).startswith(str(root)):
+        root, path = resolve_workspace_path(root_path, file_path)
+        if path is None:
             return {
                 "success": False,
-                "error": "Access denied: path is outside workspace"
+                "error": OUTSIDE_WORKSPACE_ERROR
             }
+
+        if is_protected_path(path, root):
+            return {"success": False, "error": "Cannot edit protected path"}
 
         if not path.exists():
             return {

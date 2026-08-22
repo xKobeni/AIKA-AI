@@ -23,54 +23,98 @@ class ModelRouter:
         self.fast = settings.fast_model
         self.smart = settings.smart_model
         self._last_model = None
+        self._last_reason = None
 
-    def select(self, message, task_type="chat", iteration=0):
+    def refresh_from_settings(self):
+        self.fast = settings.fast_model
+        self.smart = settings.smart_model
+
+    def select_with_reason(
+        self, message, task_type="chat", iteration=0, explicit_model=None
+    ):
+        if explicit_model:
+            self._last_model = explicit_model
+            self._last_reason = "explicit_agent_model"
+            return explicit_model, self._last_reason
+
+        use_model = self.fast  # default
+        reason = "fast_default"
+
         if task_type in ("intent", "reflection"):
-            return self.fast
+            use_model = self.fast
+            reason = f"fast_{task_type}"
+        elif task_type in ("plan", "report", "file_content"):
+            use_model = self.smart
+            reason = f"smart_{task_type}"
+        elif task_type == "tool_result_summarize":
+            use_model = self.fast
+            reason = "fast_tool_result_summarize"
+        else:
+            text = message.lower().strip()
+            words = text.split()
 
-        if task_type in ("plan", "report", "file_content"):
-            return self.smart
+            if any(kw in text for kw in COMPLEX_KEYWORDS):
+                logger.debug("ModelRouter: smart (complex keyword)")
+                use_model = self.smart
+                reason = "smart_complex_keyword"
 
-        if task_type == "tool_result_summarize":
-            return self.fast
+            elif any(text.startswith(p) for p in TOOL_HEAVY_TASKS):
+                logger.debug("ModelRouter: smart (multi-step task)")
+                use_model = self.smart
+                reason = "smart_multi_step"
 
-        text = message.lower().strip()
-        words = text.split()
+            elif len(words) > 20:
+                logger.debug("ModelRouter: smart (long message, %d words)", len(words))
+                use_model = self.smart
+                reason = "smart_long_message"
 
-        if any(kw in text for kw in COMPLEX_KEYWORDS):
-            logger.debug("ModelRouter: smart (complex keyword)")
-            return self.smart
+            elif text.endswith("?") and len(words) > 12:
+                logger.debug("ModelRouter: smart (complex question)")
+                use_model = self.smart
+                reason = "smart_complex_question"
 
-        if any(text.startswith(p) for p in TOOL_HEAVY_TASKS):
-            logger.debug("ModelRouter: smart (multi-step task)")
-            return self.smart
+            elif iteration >= 2:
+                logger.debug("ModelRouter: smart (iteration %d, task escalating)", iteration)
+                use_model = self.smart
+                reason = "smart_iteration_escalation"
 
-        if len(words) > 20:
-            logger.debug("ModelRouter: smart (long message, %d words)", len(words))
-            return self.smart
+            else:
+                logger.debug("ModelRouter: fast (simple task)")
+                use_model = self.fast
 
-        if text.endswith("?") and len(words) > 12:
-            logger.debug("ModelRouter: smart (complex question)")
-            return self.smart
+        self._last_model = use_model
+        self._last_reason = reason
+        return use_model, reason
 
-        if iteration >= 2:
-            logger.debug("ModelRouter: smart (iteration %d, task escalating)", iteration)
-            return self.smart
-
-        logger.debug("ModelRouter: fast (simple task)")
-        return self.fast
+    def select(
+        self, message, task_type="chat", iteration=0, explicit_model=None
+    ):
+        model, _ = self.select_with_reason(
+            message,
+            task_type=task_type,
+            iteration=iteration,
+            explicit_model=explicit_model,
+        )
+        return model
 
     def escalate(self, reason="tool failed"):
         logger.debug("ModelRouter: escalate to smart (%s)", reason)
+        self._last_model = self.smart
+        self._last_reason = f"escalated:{reason}"
         return self.smart
 
     @property
     def last_selected(self):
         return self._last_model
 
+    @property
+    def last_reason(self):
+        return self._last_reason
+
     def get_status(self):
         return {
             "fast": self.fast,
             "smart": self.smart,
-            "last_selected": self._last_model
+            "last_selected": self._last_model,
+            "last_reason": self._last_reason,
         }

@@ -1,7 +1,12 @@
+import logging
+
 import ollama
 
 from config.settings import settings
 from models.actions import Action
+
+
+logger = logging.getLogger(__name__)
 
 
 class LLMIntentClassifier:
@@ -27,8 +32,17 @@ class LLMIntentClassifier:
         "opinion, casual talk, or unsure"
     )
 
-    def __init__(self):
+    def __init__(self, llm=None):
+        self.llm = llm
         self.model = settings.fast_model
+
+    def refresh_from_settings(self):
+        self.model = settings.fast_model
+
+    def _chat(self, **kwargs):
+        if self.llm is not None:
+            return self.llm.chat(**kwargs)
+        return ollama.chat(**kwargs)
         self._last_text = None
         self._last_result = None
 
@@ -36,24 +50,34 @@ class LLMIntentClassifier:
         if text == self._last_text:
             return self._last_result
 
-        response = ollama.chat(
-            model=self.model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": self.SYSTEM_PROMPT
-                },
-                {
-                    "role": "user",
-                    "content": text
-                }
-            ]
-        )
+        # Default result in case of any failure
+        default_result = {"action": Action.CHAT, "tool_name": None}
 
-        intent = (
-            response["message"]["content"]
-            .strip().upper()
-        )
+        try:
+            response = self._chat(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": self.SYSTEM_PROMPT
+                    },
+                    {
+                        "role": "user",
+                        "content": text
+                    }
+                ]
+            )
+
+            intent = (
+                response["message"]["content"]
+                .strip().upper()
+            )
+
+        except Exception as e:
+            logger.warning(
+                "IntentClassifier: LLM call failed (%s), falling back to CHAT", e
+            )
+            return default_result
 
         if intent == "WEB_SEARCH":
             result = {

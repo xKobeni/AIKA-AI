@@ -333,7 +333,12 @@ You > run dir /s *.py
 AIKA > (lists all Python files recursively)
 ```
 
-Dangerous commands (rm -rf, format, shutdown, reg add, net user, bcdedit, etc.) are blocked by default. High-risk commands (like file_delete, file_write) require user confirmation when `TOOL_CALL_CONFIRM_HIGH=true`.
+Commands run without a system shell by default. Pipes, redirects, command
+chaining, and other shell operators are rejected unless
+`SHELL_UNSAFE_ENABLED=true` and the tool call explicitly requests unsafe mode.
+Working directories must remain in `SHELL_ALLOWED_WORKDIRS` beneath the
+workspace. Dangerous commands remain blocked, and shell execution remains a
+high-permission operation requiring confirmation when configured.
 
 ### Open applications
 
@@ -608,7 +613,9 @@ If a command is falsely blocked, check the keyword list:
 ```
 You > !settings os
 AIKA > shell_enabled = True
+        shell_unsafe_enabled = False
         shell_timeout = 30
+        shell_allowed_workdirs = ['.']
         shell_blocked_keywords = ['rm -rf', 'format', ...]
         app_launcher_enabled = True
         app_launcher_uwp_enabled = True

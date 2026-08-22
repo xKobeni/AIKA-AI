@@ -5,6 +5,8 @@ from datetime import datetime
 from typing import Iterator
 
 from config.settings import settings
+from brain.context_manager import _count_tokens
+from handlers.response_finalizer import ResponseFinalizer
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +24,8 @@ class ChatHandler:
         embedding_service=None,
         session_repo=None,
         model_router=None,
-        agent_registry=None
+        agent_registry=None,
+        response_finalizer=None,
     ):
 
         self.conversation_repo = conversation_repo
@@ -35,6 +38,16 @@ class ChatHandler:
         self.session_repo = session_repo
         self.model_router = model_router
         self.agent_registry = agent_registry
+        self.response_finalizer = response_finalizer or ResponseFinalizer(
+            conversation_repo,
+            embedding_service=embedding_service,
+            session_repo=session_repo,
+        )
+        self.log_level = settings.log_level
+        self._last_user_conv_id = None
+        self.last_response_metadata = None
+
+    def refresh_from_settings(self):
         self.log_level = settings.log_level
 
     def _load_persona_for_agent(self, agent_id=None):
@@ -55,6 +68,81 @@ class ChatHandler:
             if profile and profile.model:
                 return profile.model
         return None
+
+    @staticmethod
+    def _truncate_to_tokens(text, token_limit):
+        if token_limit <= 0:
+            return ""
+        words = text.split()
+        if _count_tokens(text) <= token_limit:
+            return text
+        low, high = 0, len(words)
+        while low < high:
+            mid = (low + high + 1) // 2
+            if _count_tokens(" ".join(words[:mid])) <= token_limit:
+                low = mid
+            else:
+                high = mid - 1
+        clipped = " ".join(words[:low]).rstrip()
+        return f"{clipped} ..." if clipped else ""
+
+    def _budget_prompt(self, sections):
+        """Budget the complete prompt while preserving persona and final request."""
+        sections = [section for section in sections if section and section.strip()]
+        if not sections:
+            return ""
+
+        max_tokens = getattr(self.context_manager, "max_context_tokens", None)
+        if not isinstance(max_tokens, int):
+            max_tokens = getattr(settings, "max_context_tokens", 6000)
+        if not isinstance(max_tokens, int):
+            max_tokens = 6000
+        max_tokens = max(1, max_tokens)
+        required_indexes = {0}
+        required_indexes.update(range(max(0, len(sections) - 2), len(sections)))
+        selected = {}
+        remaining = max_tokens
+
+        required_order = list(range(max(0, len(sections) - 2), len(sections)))
+        if 0 not in required_order:
+            required_order.append(0)
+        for index in required_order:
+            separator_cost = 1 if selected else 0
+            fitted = self._truncate_to_tokens(
+                sections[index], max(0, remaining - separator_cost)
+            )
+            if fitted:
+                selected[index] = fitted
+                remaining -= _count_tokens(fitted) + separator_cost
+
+        for index, section in enumerate(sections):
+            if index in required_indexes or remaining <= 1:
+                continue
+            fitted = self._truncate_to_tokens(section, remaining - 1)
+            if fitted:
+                selected[index] = fitted
+                remaining -= _count_tokens(fitted) + 1
+
+        return "\n\n".join(selected[index] for index in sorted(selected))
+
+    def _model_metrics(self, prompt, response, llm_seconds):
+        metrics = {}
+        get_metrics = getattr(self.llm, "get_last_metrics", None)
+        if callable(get_metrics):
+            metrics = get_metrics() or {}
+        if not isinstance(metrics, dict):
+            metrics = {}
+        return {
+            "prompt_tokens": metrics.get(
+                "prompt_tokens", max(1, len(prompt.strip()) // 4)
+            ),
+            "response_tokens": metrics.get(
+                "response_tokens", max(1, len(response) // 4)
+            ),
+            "response_time_ms": metrics.get(
+                "response_time_ms", int(llm_seconds * 1000)
+            ),
+        }
 
     def _should_search_web(self, user_message, agent_id=None):
 
@@ -80,6 +168,23 @@ class ChatHandler:
         if any(p in text for p in [
             "what are you", "who are you", "what is your name",
             "tell me about yourself", "what do you do",
+            "what can you do", "how do you work",
+        ]):
+            return False
+
+        # Skip conversational / emotional questions directed at AIKA
+        if any(p in text for p in [
+            "how do you feel", "do you think", "do you like",
+            "what do you think", "would you say", "can you help",
+            "are you okay", "are you there",
+        ]):
+            return False
+
+        # Skip questions about past conversations or user's own memory
+        if any(p in text for p in [
+            "what did i", "what did we", "what did you say",
+            "do you remember", "did you know", "you said",
+            "tell me what i", "what have i", "last time",
         ]):
             return False
 
@@ -90,21 +195,30 @@ class ChatHandler:
             "what is my", "what are my",
             "what projects", "what project",
             "my goals", "my goal", "my plans", "my plan",
-            "my favorite", "my preferences",
+            "my favorite", "my preferences", "my name",
+            "about me", "i told you", "i said",
         ]):
             return False
 
-        # Time-sensitive topics -> search
+        # Time-sensitive topics -> always search
         if any(p in text for p in [
-            "weather", "news", "forecast", "current ",
-            "latest", "recent", "this year",
-            "2025", "2026", "2027",
+            "weather", "news", "forecast",
+            "latest", "recent", "today", "right now",
+            "this week", "this month", "this year",
+            "2025", "2026", "2027", "current price",
+            "stock", "crypto", "breaking",
         ]):
             return True
 
-        # General question words -> search
-        if any(text.startswith(q) for q in [
-            "what", "who", "where", "when", "why", "how",
+        # Factual lookup indicators -> search
+        if any(p in text for p in [
+            "who is", "who was", "who invented", "who made",
+            "what is a ", "what are ", "what does ",
+            "where is", "where was", "where can i",
+            "when did", "when was", "when is",
+            "how much", "how many", "how long", "how far",
+            "define ", "meaning of", "explain ",
+            "difference between", "compare ",
         ]):
             return True
 
@@ -113,6 +227,8 @@ class ChatHandler:
     def chat(self, user_message, intent=None, tool_name=None, agent_id=None):
 
         t_chat = time.time()
+        self._last_user_conv_id = None
+        self.last_response_metadata = None
 
         # -------------------------
         # Input Validation
@@ -160,7 +276,8 @@ class ChatHandler:
             .build_context(
                 user_message,
                 session_id=self.session_id,
-                agent_id=agent_id
+                agent_id=agent_id,
+                query_embedding=user_embedding,
             )
         )
         t_context = time.time() - t0
@@ -254,32 +371,57 @@ class ChatHandler:
 
         persona = self._load_persona_for_agent(agent_id)
 
-        prompt = f"""{persona}
+        # ---- Assemble prompt sections ----
+        sections = [persona]
 
-Current time: {time_str}
-Current date: {date_str}
+        sections.append(
+            f"Current time: {time_str}\nCurrent date: {date_str}"
+        )
 
-Known Memories:
-{memory_context}
+        if memory_context.strip():
+            sections.append(
+                f"=== WHAT YOU KNOW ABOUT THE USER ===\n{memory_context}"
+            )
 
-{conversation_block}
+        if conversation_block.strip() and conversation_block != "(No recent conversation history)":
+            sections.append(
+                f"=== RECENT CONVERSATION ===\n{conversation_block}"
+            )
 
-{cross_session_block}
+        if cross_session_block.strip():
+            sections.append(
+                f"=== RELEVANT PAST DISCUSSIONS ===\n{cross_session_block}"
+            )
 
-{web_results_block}
+        if web_results_block.strip():
+            sections.append(
+                f"=== WEB SEARCH RESULTS (use these to answer accurately) ===\n{web_results_block}"
+            )
 
-User:
-{user_message}
+        sections.append(
+            "=== INSTRUCTIONS ===\n"
+            "- Respond naturally and warmly.\n"
+            "- Only use facts from the sections above — do not fabricate details.\n"
+            "- If you are unsure, say so honestly rather than guessing.\n"
+            "- Keep your response focused on what the user actually asked."
+        )
 
-Speak with warmth and emotion. Be conversational — use casual language, express feelings, and let your personality show."""
+        sections.append(f"User:\n{user_message}")
+
+        prompt = self._budget_prompt(sections)
 
         # -------------------------
         # Generate Response
         # -------------------------
         t0 = time.time()
-        use_model = self._get_model_for_agent(agent_id)
+        explicit_model = self._get_model_for_agent(agent_id)
+        use_model = explicit_model or settings.chat_model
         if self.model_router:
-            use_model = self.model_router.select(user_message, task_type="chat")
+            use_model = self.model_router.select(
+                user_message,
+                task_type="chat",
+                explicit_model=explicit_model,
+            )
         try:
             response = self.llm.generate_with_model(
                 prompt,
@@ -293,51 +435,23 @@ Speak with warmth and emotion. Be conversational — use casual language, expres
         # -------------------------
         # Metrics
         # -------------------------
-        full_prompt = prompt.strip()
-        prompt_tokens = max(1, len(full_prompt) // 4)
-        response_tokens = max(1, len(response) // 4)
-        response_time_ms = int((time.time() - t_chat) * 1000)
+        metrics = self._model_metrics(prompt, response, t_llm)
+        prompt_tokens = metrics["prompt_tokens"]
+        response_tokens = metrics["response_tokens"]
+        response_time_ms = metrics["response_time_ms"]
 
-        # -------------------------
-        # Generate Embedding for Response
-        # -------------------------
-        response_embedding = None
-        if self.embedding_service:
-            try:
-                response_embedding = (
-                    self.embedding_service
-                    .generate_embedding(response)
-                )
-            except Exception:
-                logger.debug("Failed to generate response embedding", exc_info=True)
-
-        # -------------------------
-        # Save Assistant Response
-        # -------------------------
-        self.conversation_repo.create(
-            role="assistant",
-            content=response,
+        self.last_response_metadata = self.response_finalizer.finalize(
+            response,
+            user_conversation_id=user_conversation.id,
             session_id=self.session_id,
-            embedding=response_embedding,
+            agent_id=agent_id,
+            model_used=use_model,
             intent=intent,
             tool_used=tool_name,
-            model_used=settings.chat_model,
             response_time_ms=response_time_ms,
-            token_count=response_tokens,
-            agent_id=agent_id
+            prompt_tokens=prompt_tokens,
+            response_tokens=response_tokens,
         )
-
-        # -------------------------
-        # Update Session Tracking
-        # -------------------------
-        if self.session_repo and self.session_id:
-            self.session_repo.increment_message_count(self.session_id, 2)
-            self.session_repo.update_last_active(self.session_id)
-
-        # -------------------------
-        # Trim old conversations
-        # -------------------------
-        self.conversation_repo.trim()
 
         # -------------------------
         # Debug Summary
@@ -358,6 +472,8 @@ Speak with warmth and emotion. Be conversational — use casual language, expres
     def chat_stream(self, user_message, intent=None, tool_name=None, agent_id=None) -> Iterator[str]:
 
         t_chat = time.time()
+        self._last_user_conv_id = None
+        self.last_response_metadata = None
 
         if len(user_message) > settings.max_input_length:
             yield (
@@ -394,7 +510,8 @@ Speak with warmth and emotion. Be conversational — use casual language, expres
             .build_context(
                 user_message,
                 session_id=self.session_id,
-                agent_id=agent_id
+                agent_id=agent_id,
+                query_embedding=user_embedding,
             )
         )
         t_context = time.time() - t0
@@ -462,29 +579,54 @@ Speak with warmth and emotion. Be conversational — use casual language, expres
 
         persona = self._load_persona_for_agent(agent_id)
 
-        prompt = f"""{persona}
+        # ---- Assemble prompt sections ----
+        sections = [persona]
 
-Current time: {time_str}
-Current date: {date_str}
+        sections.append(
+            f"Current time: {time_str}\nCurrent date: {date_str}"
+        )
 
-Known Memories:
-{memory_context}
+        if memory_context.strip():
+            sections.append(
+                f"=== WHAT YOU KNOW ABOUT THE USER ===\n{memory_context}"
+            )
 
-{conversation_block}
+        if conversation_block.strip() and conversation_block != "(No recent conversation history)":
+            sections.append(
+                f"=== RECENT CONVERSATION ===\n{conversation_block}"
+            )
 
-{cross_session_block}
+        if cross_session_block.strip():
+            sections.append(
+                f"=== RELEVANT PAST DISCUSSIONS ===\n{cross_session_block}"
+            )
 
-{web_results_block}
+        if web_results_block.strip():
+            sections.append(
+                f"=== WEB SEARCH RESULTS (use these to answer accurately) ===\n{web_results_block}"
+            )
 
-User:
-{user_message}
+        sections.append(
+            "=== INSTRUCTIONS ===\n"
+            "- Respond naturally and warmly.\n"
+            "- Only use facts from the sections above — do not fabricate details.\n"
+            "- If you are unsure, say so honestly rather than guessing.\n"
+            "- Keep your response focused on what the user actually asked."
+        )
 
-Speak with warmth and emotion. Be conversational — use casual language, express feelings, and let your personality show."""
+        sections.append(f"User:\n{user_message}")
+
+        prompt = self._budget_prompt(sections)
 
         t0 = time.time()
-        use_model = self._get_model_for_agent(agent_id)
+        explicit_model = self._get_model_for_agent(agent_id)
+        use_model = explicit_model or settings.chat_model
         if self.model_router:
-            use_model = self.model_router.select(user_message, task_type="chat")
+            use_model = self.model_router.select(
+                user_message,
+                task_type="chat",
+                explicit_model=explicit_model,
+            )
 
         response_chunks = []
         try:
@@ -499,39 +641,23 @@ Speak with warmth and emotion. Be conversational — use casual language, expres
         response = "".join(response_chunks)
         t_llm = time.time() - t0
 
-        full_prompt = prompt.strip()
-        prompt_tokens = max(1, len(full_prompt) // 4)
-        response_tokens = max(1, len(response) // 4)
-        response_time_ms = int((time.time() - t_chat) * 1000)
+        metrics = self._model_metrics(prompt, response, t_llm)
+        prompt_tokens = metrics["prompt_tokens"]
+        response_tokens = metrics["response_tokens"]
+        response_time_ms = metrics["response_time_ms"]
 
-        response_embedding = None
-        if self.embedding_service:
-            try:
-                response_embedding = (
-                    self.embedding_service
-                    .generate_embedding(response)
-                )
-            except Exception:
-                logger.debug("Failed to generate response embedding", exc_info=True)
-
-        self.conversation_repo.create(
-            role="assistant",
-            content=response,
+        self.last_response_metadata = self.response_finalizer.finalize(
+            response,
+            user_conversation_id=user_conversation.id,
             session_id=self.session_id,
-            embedding=response_embedding,
+            agent_id=agent_id,
+            model_used=use_model,
             intent=intent,
             tool_used=tool_name,
-            model_used=settings.chat_model,
             response_time_ms=response_time_ms,
-            token_count=response_tokens,
-            agent_id=agent_id
+            prompt_tokens=prompt_tokens,
+            response_tokens=response_tokens,
         )
-
-        if self.session_repo and self.session_id:
-            self.session_repo.increment_message_count(self.session_id, 2)
-            self.session_repo.update_last_active(self.session_id)
-
-        self.conversation_repo.trim()
 
         t_total = time.time() - t_chat
         web_status = (

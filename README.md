@@ -21,6 +21,7 @@ AIKA is a living desktop companion that observes, remembers, and grows with its 
 - **Per-Agent Configuration** — Custom persona, model, and tool access per agent
 - **Configuration System** — View and change all settings at runtime (`!settings`, `!set`, `!save`, `!reload`, `!model`, `!log`)
 - **Editable Persona** — Personality defined in a plain text file, editable without restarting (`!persona`, `!persona reload`)
+- **Managed Runtime Lifecycle** — Shared sync/stream response finalization and explicit shutdown of background and Ollama client resources
 
 ## Quick Start
 
@@ -46,14 +47,18 @@ python src/main.py
 ## Testing
 
 ```bash
-python tests/test_all.py                  # Run all 108 tests (mocked, ~1.5s)
+python tests/test_all.py                  # Run the standalone mocked test suite
 python tests/test_all.py --verbose        # Show input/output per test
 python tests/test_all.py --list           # List all test names
 python tests/test_all.py --category "Memory System"  # Run one category
 python tests/test_all.py --live           # Real integration tests (needs Ollama + PostgreSQL)
 ```
 
-15 categories: Settings & Config, Memory System, Tools (Math, File Ops, Web, System, Memory), Agent System, Brain & Routing, Agent Loop & Tool Calling, Orchestration, Safety, Streaming, Planner & Research, Live Integration.
+The suite covers settings, memory, tools, agents, routing, orchestration, safety, streaming, planning, research, and optional live integration. The pytest suite adds focused regression coverage for stabilization phases and lifecycle behavior.
+
+```bash
+python -m pytest                        # Run the complete pytest suite
+```
 
 ```bash
 python tests/demo.py                      # Guided feature tour (no dependencies needed)

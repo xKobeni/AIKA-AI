@@ -24,6 +24,7 @@ import fnmatch
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Callable, Optional, Any
+from unittest import SkipTest
 from unittest.mock import patch, MagicMock, PropertyMock
 from io import StringIO
 
@@ -115,6 +116,13 @@ class AikaTestRunner:
             elapsed = time.time() - start
             result = TestResult(name, category, False, elapsed, str(e)[:200])
             self._fail_count += 1
+        except SkipTest as e:
+            elapsed = time.time() - start
+            result = TestResult(
+                name, category, True, elapsed,
+                str(e) or "skipped", skipped=True
+            )
+            self._skip_count += 1
         except Exception as e:
             elapsed = time.time() - start
             result = TestResult(name, category, False, elapsed, f"{type(e).__name__}: {str(e)[:150]}")
@@ -422,7 +430,7 @@ def test_settings_protected_paths():
     return "Settings().protected_paths", repr(s.protected_paths)
 
 def test_settings_all_attributes_exist():
-    from config.settings import Settings
+    from config.settings import DEFAULT_LOG_FORMAT, Settings
     s = Settings()
     required = [
         "database_url", "chat_model", "fast_model", "smart_model",
@@ -435,6 +443,9 @@ def test_settings_all_attributes_exist():
     ]
     for attr in required:
         assert hasattr(s, attr), f"Missing attribute: {attr}"
+    with patch.dict("os.environ", {"LOG_FORMAT": "json"}):
+        invalid_format_settings = Settings()
+    assert invalid_format_settings.log_format == DEFAULT_LOG_FORMAT
     return "Settings() has all attributes", "All present"
 
 
@@ -1429,10 +1440,14 @@ def test_report_generator():
 # LIVE INTEGRATION TESTS (require --live flag + running Ollama/PostgreSQL)
 # ===
 
+def _require_live_mode(runner):
+    if not runner or not runner.live_mode:
+        raise SkipTest("requires --live")
+
+
 def test_live_ollama_generate(runner=None):
     """Real Ollama generate call"""
-    if not runner or not runner.live_mode:
-        return "skipped (mocked mode)", "use --live"
+    _require_live_mode(runner)
     from llm.ollama_client import OllamaClient
     client = OllamaClient()
     response = client.generate("What is 2+2? Reply with just the number.")
@@ -1443,8 +1458,7 @@ def test_live_ollama_generate(runner=None):
 
 def test_live_ollama_chat(runner=None):
     """Real Ollama chat call with system prompt"""
-    if not runner or not runner.live_mode:
-        return "skipped (mocked mode)", "use --live"
+    _require_live_mode(runner)
     from llm.ollama_client import OllamaClient
     client = OllamaClient()
     response = client.generate_with_model(
@@ -1458,8 +1472,7 @@ def test_live_ollama_chat(runner=None):
 
 def test_live_ollama_stream(runner=None):
     """Real Ollama streaming response"""
-    if not runner or not runner.live_mode:
-        return "skipped (mocked mode)", "use --live"
+    _require_live_mode(runner)
     from llm.ollama_client import OllamaClient
     client = OllamaClient()
     chunks = list(client.generate_stream("Say hello in one word."))
@@ -1471,8 +1484,7 @@ def test_live_ollama_stream(runner=None):
 
 def test_live_calculator_then_llm(runner=None):
     """Calculator result fed to LLM for explanation"""
-    if not runner or not runner.live_mode:
-        return "skipped (mocked mode)", "use --live"
+    _require_live_mode(runner)
     from tools.calculator_tool import CalculatorTool
     from llm.ollama_client import OllamaClient
     calc = CalculatorTool()
@@ -1487,8 +1499,7 @@ def test_live_calculator_then_llm(runner=None):
 
 def test_live_web_search(runner=None):
     """Real DuckDuckGo web search"""
-    if not runner or not runner.live_mode:
-        return "skipped (mocked mode)", "use --live"
+    _require_live_mode(runner)
     from tools.web_search_tool import WebSearchTool
     tool = WebSearchTool()
     result = tool.execute(query="Python programming language", max_results=3)
@@ -1501,8 +1512,7 @@ def test_live_web_search(runner=None):
 
 def test_live_memory_store_and_search(runner=None):
     """Real PostgreSQL memory store and search"""
-    if not runner or not runner.live_mode:
-        return "skipped (mocked mode)", "use --live"
+    _require_live_mode(runner)
     from database.db import db_session
     from repositories.memory_repository import MemoryRepository
     from llm.embedding_service import EmbeddingService
@@ -1519,8 +1529,7 @@ def test_live_memory_store_and_search(runner=None):
 
 def test_live_full_agent_loop(runner=None):
     """Full agent loop with real LLM - ask a question, get tool calls, get answer"""
-    if not runner or not runner.live_mode:
-        return "skipped (mocked mode)", "use --live"
+    _require_live_mode(runner)
     from brain.agent_loop import AgentLoop
     from tools.tool_manager import ToolManager
     from llm.ollama_client import OllamaClient
@@ -1543,8 +1552,7 @@ def test_live_full_agent_loop(runner=None):
 
 def test_live_agent_loop_stream(runner=None):
     """Full agent loop with streaming response"""
-    if not runner or not runner.live_mode:
-        return "skipped (mocked mode)", "use --live"
+    _require_live_mode(runner)
     from brain.agent_loop import AgentLoop
     from tools.tool_manager import ToolManager
     from llm.ollama_client import OllamaClient

@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, timezone
 
 from database.db import db_session
-from database.models import Session
+from database.models import Conversation, Memory, Session
 
 logger = logging.getLogger(__name__)
 
@@ -91,4 +91,30 @@ class SessionRepository:
 
     def delete(self, session_id):
         with db_session() as db:
-            db.query(Session).filter(Session.id == session_id).delete()
+            conversation_ids = (
+                db.query(Conversation.id)
+                .filter(Conversation.session_id == session_id)
+            )
+            memories_unlinked = (
+                db.query(Memory)
+                .filter(Memory.source_conversation_id.in_(conversation_ids))
+                .update(
+                    {Memory.source_conversation_id: None},
+                    synchronize_session=False,
+                )
+            )
+            conversation_count = (
+                db.query(Conversation)
+                .filter(Conversation.session_id == session_id)
+                .delete(synchronize_session=False)
+            )
+            session_count = (
+                db.query(Session)
+                .filter(Session.id == session_id)
+                .delete(synchronize_session=False)
+            )
+            return {
+                "session_deleted": session_count == 1,
+                "conversations_deleted": conversation_count,
+                "memories_unlinked": memories_unlinked,
+            }

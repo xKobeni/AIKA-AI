@@ -15,10 +15,15 @@ CATEGORIES = {
                "memory_category_boost_skill", "memory_max_per_category", "memory_validator_min_score"],
     "context": ["max_context_tokens", "max_profile_per_category", "recent_conversations_count"],
     "conversation": ["conversation_max_count"],
-    "web": ["web_search_max_results"],
+    "web": ["web_search_max_results", "web_crawl_max_workers", "web_crawl_max_urls",
+            "web_crawl_max_redirects", "web_crawl_timeout",
+            "web_crawl_max_response_bytes", "web_crawl_allow_private_network"],
     "planner": ["plan_web_search_max_results", "plan_top_sources_count", "crawl_content_max_chars"],
     "validation": ["max_input_length", "max_calculation_length"],
-    "tools": ["file_search_root_path", "file_read_encoding"],
+    "tools": ["file_search_root_path", "file_read_encoding",
+              "file_search_max_results", "file_scan_max_files"],
+    "shell": ["shell_enabled", "shell_unsafe_enabled", "shell_timeout",
+              "shell_allowed_workdirs", "shell_blocked_keywords"],
     "paths": ["execution_log_path", "memory_data_path", "conversation_data_path"],
     "persona": ["persona_path"],
     "logging": ["log_level", "log_format"],
@@ -27,8 +32,13 @@ CATEGORIES = {
 
 class ConfigHandler:
 
-    def __init__(self, agent_registry=None):
+    def __init__(self, agent_registry=None, refresh_callback=None):
         self.agent_registry = agent_registry
+        self.refresh_callback = refresh_callback
+
+    def _notify_refresh(self, changed_keys=None):
+        if self.refresh_callback:
+            self.refresh_callback(changed_keys=changed_keys)
 
     def handle(self, user_message: str):
 
@@ -57,6 +67,7 @@ class ConfigHandler:
         if text == "!reload":
 
             settings.reload()
+            self._notify_refresh()
             logger.info("Settings reloaded from environment")
             return "Settings reloaded from environment."
 
@@ -137,7 +148,12 @@ class ConfigHandler:
         if typed is None:
             return f"Cannot parse '{value}' as type {type(old).__name__}"
 
+        validation_error = self._validate_value(key, typed)
+        if validation_error:
+            return validation_error
+
         setattr(settings, key, typed)
+        self._notify_refresh(changed_keys={key})
         logger.info("Setting %s changed: %s -> %s", key, old, typed)
 
         return f"{key} changed from {old} to {typed}. Use !save to persist."
@@ -168,7 +184,10 @@ class ConfigHandler:
                         k = k.strip()
                         if k in env_key_map:
                             attr_name = env_key_map[k]
-                            new_lines.append(f"{k}={getattr(settings, attr_name)}\n")
+                            serialized = self._serialize_env_value(
+                                getattr(settings, attr_name)
+                            )
+                            new_lines.append(f"{k}={serialized}\n")
                             updated.add(k)
                         else:
                             new_lines.append(line)
@@ -177,7 +196,10 @@ class ConfigHandler:
 
         for env_name, attr_name in env_key_map.items():
             if env_name not in updated:
-                new_lines.append(f"{env_name}={getattr(settings, attr_name)}\n")
+                serialized = self._serialize_env_value(
+                    getattr(settings, attr_name)
+                )
+                new_lines.append(f"{env_name}={serialized}\n")
 
         with open(path, "w", encoding="utf-8") as f:
             f.writelines(new_lines)
@@ -217,10 +239,20 @@ class ConfigHandler:
             "plan_web_search_max_results": "PLAN_WEB_SEARCH_MAX_RESULTS",
             "plan_top_sources_count": "PLAN_TOP_SOURCES_COUNT",
             "crawl_content_max_chars": "CRAWL_CONTENT_MAX_CHARS",
+            "web_crawl_max_workers": "WEB_CRAWL_MAX_WORKERS",
+            "web_crawl_max_urls": "WEB_CRAWL_MAX_URLS",
+            "web_crawl_max_redirects": "WEB_CRAWL_MAX_REDIRECTS",
+            "web_crawl_timeout": "WEB_CRAWL_TIMEOUT",
+            "web_crawl_max_response_bytes": "WEB_CRAWL_MAX_RESPONSE_BYTES",
+            "web_crawl_allow_private_network": "WEB_CRAWL_ALLOW_PRIVATE_NETWORK",
             "max_input_length": "MAX_INPUT_LENGTH",
             "max_calculation_length": "MAX_CALCULATION_LENGTH",
             "file_search_root_path": "FILE_SEARCH_ROOT_PATH",
             "file_read_encoding": "FILE_READ_ENCODING",
+            "file_search_max_results": "FILE_SEARCH_MAX_RESULTS",
+            "file_scan_max_files": "FILE_SCAN_MAX_FILES",
+            "shell_unsafe_enabled": "SHELL_UNSAFE_ENABLED",
+            "shell_allowed_workdirs": "SHELL_ALLOWED_WORKDIRS",
             "execution_log_path": "EXECUTION_LOG_PATH",
             "memory_data_path": "MEMORY_DATA_PATH",
             "conversation_data_path": "CONVERSATION_DATA_PATH",
@@ -229,11 +261,26 @@ class ConfigHandler:
             "persona_path": "PERSONA_PATH",
         }
 
-        return known_map.get(attr_name)
+        return known_map.get(attr_name, env_name)
+
+    def _serialize_env_value(self, value):
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        if isinstance(value, list):
+            return ",".join(str(item).strip() for item in value)
+        return str(value)
 
     def _cast(self, value, type_name):
 
         try:
+
+            if type_name == "bool":
+                normalized = value.strip().lower()
+                if normalized in ("true", "yes", "1"):
+                    return True
+                if normalized in ("false", "no", "0"):
+                    return False
+                return None
 
             if type_name == "int":
                 return int(value)
@@ -241,10 +288,44 @@ class ConfigHandler:
             if type_name == "float":
                 return float(value)
 
+            if type_name == "list":
+                return [item.strip() for item in value.split(",") if item.strip()]
+
             return value
 
         except ValueError:
             return None
+
+    def _validate_value(self, key, value):
+        positive_integer_settings = {
+            "agent_max_iterations", "conversation_max_count",
+            "context_cross_session_conversations",
+            "context_session_summaries_count", "crawl_content_max_chars",
+            "file_grep_max_results", "file_search_max_results",
+            "file_scan_max_files", "llm_timeout",
+            "max_calculation_length", "max_context_tokens",
+            "max_input_length", "max_profile_per_category",
+            "memory_candidate_multiplier", "memory_extraction_max_per_message",
+            "memory_max_per_category", "memory_recency_half_life_hours",
+            "memory_retrieval_limit", "plan_top_sources_count",
+            "plan_web_search_max_results", "recent_conversations_count",
+            "shell_timeout", "tool_call_max_params_length",
+            "web_crawl_max_redirects", "web_crawl_max_response_bytes",
+            "web_crawl_max_urls", "web_crawl_max_workers", "web_crawl_timeout",
+            "web_search_max_results",
+        }
+        unit_interval_settings = {
+            "memory_access_weight", "memory_importance_weight",
+            "memory_min_score", "memory_profile_weight",
+            "memory_recency_weight", "memory_sim_weight",
+            "memory_validator_min_score", "memory_dedup_threshold",
+        }
+
+        if key in positive_integer_settings and value <= 0:
+            return f"{key} must be greater than zero."
+        if key in unit_interval_settings and not 0 <= value <= 1:
+            return f"{key} must be between 0 and 1."
+        return None
 
     def _switch_model(self, text):
 
@@ -270,9 +351,12 @@ class ConfigHandler:
             if tier == "fast":
                 old = settings.fast_model
                 settings.fast_model = model_name
+                changed_key = "fast_model"
             else:
                 old = settings.smart_model
                 settings.smart_model = model_name
+                changed_key = "smart_model"
+            self._notify_refresh(changed_keys={changed_key})
             logger.info("Model %s switched: %s -> %s", tier, old, model_name)
             return (
                 f"Model {tier}: {old} -> {model_name}\n"
@@ -282,6 +366,7 @@ class ConfigHandler:
         model_name = parts[1].strip()
         old = settings.chat_model
         settings.chat_model = model_name
+        self._notify_refresh(changed_keys={"chat_model"})
 
         logger.info("Model switched: %s -> %s", old, model_name)
 

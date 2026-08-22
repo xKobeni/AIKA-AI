@@ -138,8 +138,22 @@ Optional variables:
 | `AUDIT_LOG_ENABLED` | `true` | Log all tool calls to audit file |
 | `AUDIT_LOG_PATH` | `logs/audit.log` | Path to audit log file |
 | `PROTECTED_PATHS` | `.env,.git,.gitignore,*.key,*.pem,*.env` | Files/patterns blocked from write/delete |
+| `MAX_CONTEXT_TOKENS` | `6000` | Approximate budget for the complete assembled chat prompt |
+| `FILE_SEARCH_MAX_RESULTS` | `20` | Maximum filename matches returned per search |
+| `FILE_SCAN_MAX_FILES` | `10000` | Maximum files inspected per search or grep request |
+| `WEB_CRAWL_MAX_WORKERS` | `4` | Maximum concurrent workers for multi-page crawling |
+| `WEB_CRAWL_MAX_URLS` | `10` | Maximum URLs accepted by one crawl request |
+| `WEB_CRAWL_MAX_REDIRECTS` | `5` | Maximum validated redirects per crawl |
+| `WEB_CRAWL_TIMEOUT` | `15` | Crawler HTTP timeout in seconds |
+| `WEB_CRAWL_MAX_RESPONSE_BYTES` | `5000000` | Maximum downloaded page size |
+| `WEB_CRAWL_ALLOW_PRIVATE_NETWORK` | `false` | Allow private/local crawler destinations; leave disabled unless explicitly required |
+| `SHELL_UNSAFE_ENABLED` | `false` | Permit explicit system-shell execution |
+| `SHELL_ALLOWED_WORKDIRS` | `.` | Allowed shell working directories beneath the workspace |
 
 > **Security note:** `.env` is git-ignored. Never commit secrets to the repository.
+> Safe shell execution and public-network-only crawling are enabled by default.
+> Windows Registry, Start Menu, and UWP discovery require Windows; `pywin32`
+> is conditionally installed only on that platform.
 
 ---
 
@@ -149,14 +163,32 @@ Optional variables:
 python src/create_tables.py
 ```
 
-This creates the `memories`, `conversations`, `sessions`, and `agents` tables with the `pgvector` vector column and `agent_id` columns for multi-agent isolation.
+This creates the `memories`, `conversations`, and `sessions` tables with
+validated `pgvector` columns and `agent_id` columns for multi-agent isolation.
+Agent profiles are stored authoritatively in `data/agents.json`.
 
 Expected output:
 ```
-Tables created.
+Tables created and embedding dimensions validated.
 ```
 
-> **Note:** If upgrading from a previous version, you may need to add the `agent_id` columns manually. See ARCHITECTURE.md for the migration SQL.
+For an existing database, inspect pending migrations before applying anything:
+
+```bash
+python src/migrate_db.py --status
+python src/migrate_db.py --dry-run
+```
+
+Back up the database and resolve any reported orphan records before applying:
+
+```bash
+python src/migrate_db.py --apply
+```
+
+Each migration runs in its own transaction. Migration 1 adds the documented
+session cascade and memory-source foreign keys. Migration 2 preserves the
+unused ORM agent table by renaming it to `agents_legacy`, leaving
+`data/agents.json` as the only active agent source of truth.
 
 ---
 
@@ -179,14 +211,14 @@ You >
 ## 9. Run Tests (Optional)
 
 ```bash
-python tests/test_all.py                  # Run all 108 tests (mocked, ~1.5s)
+python tests/test_all.py                  # Run the standalone mocked suite
 python tests/test_all.py --verbose        # Show input/output per test
 python tests/test_all.py --list           # List all test names and categories
 python tests/test_all.py --category "Memory System"  # Run one category
 python tests/test_all.py --live           # Real integration (requires Ollama + PostgreSQL)
 ```
 
-15 test categories: Settings & Config, Memory System, Tools (Math, File Ops, Web, System, Memory), Agent System, Brain & Routing, Agent Loop & Tool Calling, Orchestration, Safety, Streaming, Planner & Research, Live Integration.
+The standalone runner covers settings, memory, tools, agents, routing, orchestration, safety, streaming, planning, research, and optional live integration. Use `python -m pytest` for the complete regression suite.
 
 > **Windows note:** Set `PYTHONIOENCODING=utf-8` if Rich output shows garbled characters.
 

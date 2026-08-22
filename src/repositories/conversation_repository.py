@@ -9,6 +9,10 @@ class ConversationRepository:
         self.max_count = settings.conversation_max_count
         self.recent_limit = settings.recent_conversations_count
 
+    def refresh_from_settings(self):
+        self.max_count = settings.conversation_max_count
+        self.recent_limit = settings.recent_conversations_count
+
     def create(self, role, content, session_id=None, tool_used=None,
                embedding=None, intent=None, model_used=None,
                response_time_ms=None, token_count=None, agent_id=None):
@@ -75,13 +79,16 @@ class ConversationRepository:
             query = (
                 db.query(Conversation)
                 .filter(Conversation.embedding.isnot(None))
-                .order_by(Conversation.embedding.l2_distance(query_embedding))
-                .limit(limit)
             )
             if agent_id:
                 query = query.filter(
                     (Conversation.agent_id == agent_id) | (Conversation.agent_id.is_(None))
                 )
+            query = (
+                query
+                .order_by(Conversation.embedding.l2_distance(query_embedding))
+                .limit(limit)
+            )
             return list(reversed(query.all()))
 
     def search_across_sessions(self, query_embedding, current_session_id, limit=5, agent_id=None):
@@ -92,13 +99,16 @@ class ConversationRepository:
                 db.query(Conversation)
                 .filter(Conversation.embedding.isnot(None))
                 .filter(Conversation.session_id != current_session_id)
-                .order_by(Conversation.embedding.l2_distance(query_embedding))
-                .limit(limit)
             )
             if agent_id:
                 query = query.filter(
                     (Conversation.agent_id == agent_id) | (Conversation.agent_id.is_(None))
                 )
+            query = (
+                query
+                .order_by(Conversation.embedding.l2_distance(query_embedding))
+                .limit(limit)
+            )
             return list(reversed(query.all()))
 
     def get_by_role(self, role, limit=10):
@@ -115,19 +125,30 @@ class ConversationRepository:
 
             return list(reversed(conversations))
 
-    def trim(self, max_count=None):
+    def trim(self, max_count=None, agent_id=None):
 
         if max_count is None:
             max_count = self.max_count
 
         with db_session() as db:
 
-            count = db.query(func.count(Conversation.id)).scalar()
+            agent_filter = (
+                Conversation.agent_id == agent_id
+                if agent_id is not None
+                else Conversation.agent_id.is_(None)
+            )
+
+            count = (
+                db.query(func.count(Conversation.id))
+                .filter(agent_filter)
+                .scalar()
+            )
 
             if count > max_count:
 
                 first_to_keep = (
                     db.query(Conversation.id)
+                    .filter(agent_filter)
                     .order_by(Conversation.id)
                     .offset(count - max_count)
                     .limit(1)
@@ -136,9 +157,12 @@ class ConversationRepository:
 
                 if first_to_keep is not None:
 
-                    db.query(Conversation).filter(
-                        Conversation.id < first_to_keep
-                    ).delete(synchronize_session=False)
+                    (
+                        db.query(Conversation)
+                        .filter(agent_filter)
+                        .filter(Conversation.id < first_to_keep)
+                        .delete(synchronize_session=False)
+                    )
 
     def clear(self):
 

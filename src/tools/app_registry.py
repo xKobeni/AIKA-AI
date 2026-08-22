@@ -3,6 +3,7 @@ import time
 import json
 import logging
 import subprocess
+import sys
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +17,8 @@ CACHE_TTL = 300
 
 def scan_registry_apps():
     """Scan Windows Registry App Paths and Uninstall keys for installed apps."""
+    if sys.platform != "win32":
+        return {}
     import winreg
 
     apps = {}
@@ -64,6 +67,8 @@ def scan_registry_apps():
 
 def scan_start_menu_apps():
     """Scan Start Menu .lnk shortcuts for installed apps."""
+    if sys.platform != "win32":
+        return {}
     try:
         import pythoncom
         import win32com.client
@@ -119,6 +124,8 @@ def scan_start_menu_apps():
 
 def scan_uwp_apps():
     """Scan Microsoft Store (UWP) apps using Get-StartApps."""
+    if sys.platform != "win32":
+        return {}
     try:
         result = subprocess.run(
             ["powershell.exe", "-NoProfile", "-Command",

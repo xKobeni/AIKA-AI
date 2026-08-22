@@ -33,6 +33,8 @@ SYSTEM_PROMPT = (
     "- Do NOT repeat actions that already failed.\n"
     "- If a tool returned a result, analyze it and either call another tool or respond.\n"
     "- If a request seems harmful, dangerous, or inappropriate, say so clearly.\n"
+    "- Do NOT fabricate facts, names, dates, or details you were not given.\n"
+    "- If you do not know something, say so honestly instead of guessing.\n"
 )
 
 NATIVE_TOOLS_PROMPT = (
@@ -46,6 +48,8 @@ NATIVE_TOOLS_PROMPT = (
     "- If a tool returned a result, analyze it and either call another tool or respond.\n"
     "- When the task is complete, respond directly with your answer.\n"
     "- If a request seems harmful, dangerous, or inappropriate, say so clearly.\n"
+    "- Do NOT fabricate facts, names, dates, or details you were not given.\n"
+    "- If you do not know something, say so honestly instead of guessing.\n"
 )
 
 
@@ -77,7 +81,8 @@ class AgentLoop:
         self.max_iterations = settings.agent_max_iterations
         self.reflection_enabled = settings.agent_reflection_enabled
         self.model = settings.chat_model
-        self.reflection = ReflectionEngine()
+        self.last_model_used = None
+        self.reflection = ReflectionEngine(llm=self.llm)
         self.native_tool_calling = getattr(settings, 'native_tool_calling', True)
 
     def _get_agent_profile(self, agent_id):
@@ -98,6 +103,7 @@ class AgentLoop:
 
     def run(self, user_message, agent_id=None):
         t0 = time.time()
+        self.last_model_used = None
 
         if settings.tool_calling_enabled and self.tool_manager and self.llm_tool_router:
             response = self._run_llm_loop(user_message, agent_id=agent_id)
@@ -110,6 +116,7 @@ class AgentLoop:
         return response
 
     def run_stream(self, user_message, agent_id=None) -> Iterator[str]:
+        self.last_model_used = None
         if settings.tool_calling_enabled and self.tool_manager and self.llm_tool_router:
             yield from self._run_llm_loop_stream(user_message, agent_id=agent_id)
         else:
@@ -126,6 +133,13 @@ class AgentLoop:
         if profile and profile.model:
             return profile.model
         return self.model
+
+    def refresh_from_settings(self):
+        self.max_iterations = settings.agent_max_iterations
+        self.reflection_enabled = settings.agent_reflection_enabled
+        self.model = settings.chat_model
+        self.native_tool_calling = getattr(settings, 'native_tool_calling', True)
+        self.reflection.refresh_from_settings()
 
     def _check_delegation_intent(self, llm_response, current_agent_id=None):
         import re
@@ -197,12 +211,20 @@ class AgentLoop:
             llm_response = response_data.get("content", "").strip()
             tool_calls = response_data.get("tool_calls", [])
 
+            if not llm_response and not tool_calls:
+                logger.warning("Empty response from native tool calling on iteration %d, falling back to legacy", i + 1)
+                return self._run_legacy_loop(user_message, agent_id=agent_id)
+
             delegation = self._check_delegation_intent(llm_response, agent_id)
             if delegation:
                 target_agent, task = delegation
                 logger.info("LLM delegation detected: %s -> %s", agent_id, target_agent)
-                result = self._orchestrator.delegate(agent_id, task, target_agent)
-                context.add_assistant_response(result)
+                if self._orchestrator is not None:
+                    result = self._orchestrator.delegate(agent_id, task, target_agent)
+                    context.add_assistant_response(result)
+                else:
+                    logger.warning("Delegation requested but orchestrator is not available")
+                    context.add_assistant_response(llm_response)
                 break
 
             if tool_calls:
@@ -327,12 +349,21 @@ class AgentLoop:
             llm_response = response_data.get("content", "").strip()
             tool_calls = response_data.get("tool_calls", [])
 
+            if not llm_response and not tool_calls:
+                logger.warning("Empty response from native tool calling on iteration %d, falling back to legacy", i + 1)
+                yield self._run_legacy_loop(user_message, agent_id=agent_id)
+                return
+
             delegation = self._check_delegation_intent(llm_response, agent_id)
             if delegation:
                 target_agent, task = delegation
                 logger.info("LLM delegation detected: %s -> %s", agent_id, target_agent)
-                result = self._orchestrator.delegate(agent_id, task, target_agent)
-                context.add_assistant_response(result)
+                if self._orchestrator is not None:
+                    result = self._orchestrator.delegate(agent_id, task, target_agent)
+                    context.add_assistant_response(result)
+                else:
+                    logger.warning("Delegation requested but orchestrator is not available")
+                    context.add_assistant_response(llm_response)
                 break
 
             if tool_calls:
@@ -448,22 +479,33 @@ class AgentLoop:
             else:
                 messages.append({"role": msg["role"], "content": msg["content"]})
 
-        use_model = self._get_effective_model(agent_id)
+        profile = self._get_agent_profile(agent_id)
+        explicit_model = profile.model if profile and profile.model else None
+        use_model = explicit_model or self.model
         if self.model_router:
             use_model = self.model_router.select(
                 context.original_message,
                 task_type="chat",
-                iteration=context.iterations
+                iteration=context.iterations,
+                explicit_model=explicit_model,
             )
-            if context.actions_taken and context.actions_taken[-1].get("failed"):
+            if (not explicit_model and context.actions_taken
+                    and context.actions_taken[-1].get("failed")):
                 use_model = self.model_router.escalate("tool failed")
+
+        self.last_model_used = use_model
 
         try:
             kwargs = {"model": use_model, "messages": messages, "stream": True}
             if use_native:
                 kwargs["tools"] = native_tools
 
-            for chunk in ollama.chat(**kwargs):
+            chat_call = (
+                self.llm.chat
+                if getattr(self.llm, "_uses_configured_client", False) is True
+                else ollama.chat
+            )
+            for chunk in chat_call(**kwargs):
                 if "message" in chunk and "content" in chunk["message"]:
                     yield chunk["message"]["content"]
         except Exception as e:
@@ -526,22 +568,33 @@ class AgentLoop:
             else:
                 messages.append({"role": msg["role"], "content": msg["content"]})
 
-        use_model = self._get_effective_model(agent_id)
+        profile = self._get_agent_profile(agent_id)
+        explicit_model = profile.model if profile and profile.model else None
+        use_model = explicit_model or self.model
         if self.model_router:
             use_model = self.model_router.select(
                 context.original_message,
                 task_type="chat",
-                iteration=context.iterations
+                iteration=context.iterations,
+                explicit_model=explicit_model,
             )
-            if context.actions_taken and context.actions_taken[-1].get("failed"):
+            if (not explicit_model and context.actions_taken
+                    and context.actions_taken[-1].get("failed")):
                 use_model = self.model_router.escalate("tool failed")
+
+        self.last_model_used = use_model
 
         try:
             kwargs = {"model": use_model, "messages": messages}
             if use_native:
                 kwargs["tools"] = native_tools
 
-            response = ollama.chat(**kwargs)
+            chat_call = (
+                self.llm.chat
+                if getattr(self.llm, "_uses_configured_client", False) is True
+                else ollama.chat
+            )
+            response = chat_call(**kwargs)
 
             content = response["message"].get("content", "").strip()
             tool_calls = []

@@ -1,8 +1,12 @@
-from pathlib import Path
 from tools.base_tool import BaseTool
 from tools.tool_category import ToolCategory
 from tools.tool_permission import ToolPermission
 from config.settings import settings
+from tools.path_security import (
+    OUTSIDE_WORKSPACE_ERROR,
+    is_protected_path,
+    resolve_workspace_path,
+)
 
 
 class FileWriteTool(BaseTool):
@@ -12,6 +16,9 @@ class FileWriteTool(BaseTool):
     permission = ToolPermission.HIGH
 
     def __init__(self):
+        self.encoding = settings.file_read_encoding
+
+    def refresh_from_settings(self):
         self.encoding = settings.file_read_encoding
 
     @property
@@ -37,14 +44,7 @@ class FileWriteTool(BaseTool):
         }
 
     def _is_protected_path(self, file_path):
-        from config.settings import settings
-        import fnmatch
-        path_lower = file_path.lower()
-        for protected in settings.protected_paths:
-            protected = protected.strip().lower()
-            if protected and (protected in path_lower or fnmatch.fnmatch(path_lower, protected)):
-                return True
-        return False
+        return is_protected_path(file_path)
 
     def execute(self, file_path, content, root_path=None):
 
@@ -52,12 +52,6 @@ class FileWriteTool(BaseTool):
             return {
                 "success": False,
                 "error": "File write is disabled"
-            }
-
-        if self._is_protected_path(file_path):
-            return {
-                "success": False,
-                "error": f"Cannot write to protected path: {file_path}"
             }
 
         if not content and content != "":
@@ -75,13 +69,17 @@ class FileWriteTool(BaseTool):
         if root_path is None:
             root_path = settings.file_search_root_path
 
-        root = Path(root_path).resolve()
-        path = (root / file_path).resolve()
-
-        if not str(path).startswith(str(root)):
+        root, path = resolve_workspace_path(root_path, file_path)
+        if path is None:
             return {
                 "success": False,
-                "error": "Access denied: path is outside workspace"
+                "error": OUTSIDE_WORKSPACE_ERROR
+            }
+
+        if is_protected_path(path, root):
+            return {
+                "success": False,
+                "error": f"Cannot write to protected path: {file_path}"
             }
 
         try:

@@ -8,6 +8,9 @@ class ExecutionPlanner:
     def __init__(self):
         self.web_search_max_results = settings.plan_web_search_max_results
 
+    def refresh_from_settings(self):
+        self.web_search_max_results = settings.plan_web_search_max_results
+
     RESEARCH_PREFIXES = [
         "research ", "learn about ",
         "investigate ", "study ",

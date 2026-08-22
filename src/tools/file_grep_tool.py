@@ -1,10 +1,14 @@
-import os
 import re
-from pathlib import Path
 from tools.base_tool import BaseTool
 from tools.tool_category import ToolCategory
 from tools.tool_permission import ToolPermission
 from config.settings import settings
+from tools.path_security import (
+    OUTSIDE_WORKSPACE_ERROR,
+    iter_scannable_files,
+    is_protected_path,
+    resolve_workspace_path,
+)
 
 
 class FileGrepTool(BaseTool):
@@ -16,6 +20,14 @@ class FileGrepTool(BaseTool):
     def __init__(self):
         self.encoding = settings.file_read_encoding
         self.max_results = settings.file_grep_max_results
+        max_files = getattr(settings, "file_scan_max_files", 10000)
+        self.max_files = max_files if isinstance(max_files, int) else 10000
+
+    def refresh_from_settings(self):
+        self.encoding = settings.file_read_encoding
+        self.max_results = settings.file_grep_max_results
+        max_files = getattr(settings, "file_scan_max_files", 10000)
+        self.max_files = max_files if isinstance(max_files, int) else 10000
 
     @property
     def name(self):
@@ -63,15 +75,15 @@ class FileGrepTool(BaseTool):
         if root_path is None:
             root_path = settings.file_search_root_path
 
-        root = Path(root_path).resolve()
-        search_path = (root / path).resolve()
-
-        if not str(search_path).startswith(str(root) + os.sep) and \
-           str(search_path) != str(root):
+        root, search_path = resolve_workspace_path(root_path, path)
+        if search_path is None:
             return {
                 "success": False,
-                "error": "Access denied: path is outside workspace"
+                "error": OUTSIDE_WORKSPACE_ERROR
             }
+
+        if is_protected_path(search_path, root):
+            return {"success": False, "error": "Access denied: protected path"}
 
         if not search_path.exists():
             return {
@@ -82,17 +94,19 @@ class FileGrepTool(BaseTool):
         matches = []
 
         try:
-            glob_pattern = "**/*" if recursive else "*"
-            files = search_path.glob(glob_pattern)
+            files = iter_scannable_files(
+                root,
+                start=search_path,
+                recursive=recursive,
+                max_files=self.max_files,
+            )
 
-            for file_path in files:
-                if not file_path.is_file():
+            for safe_file in files:
+
+                if file_pattern != "*" and not safe_file.match(file_pattern):
                     continue
 
-                if file_pattern != "*" and not file_path.match(file_pattern):
-                    continue
-
-                if file_path.suffix.lower() in [
+                if safe_file.suffix.lower() in [
                     ".png", ".jpg", ".jpeg", ".gif", ".bmp",
                     ".exe", ".dll", ".so", ".dylib",
                     ".zip", ".tar", ".gz", ".rar",
@@ -101,7 +115,7 @@ class FileGrepTool(BaseTool):
                     continue
 
                 try:
-                    content = file_path.read_text(
+                    content = safe_file.read_text(
                         encoding=self.encoding,
                         errors="replace"
                     )
@@ -109,7 +123,7 @@ class FileGrepTool(BaseTool):
                     for i, line in enumerate(content.splitlines(), 1):
                         if query.lower() in line.lower():
                             matches.append({
-                                "file": str(file_path.relative_to(root)),
+                                "file": str(safe_file.relative_to(root)),
                                 "line_number": i,
                                 "line": line.strip()[:200]
                             })

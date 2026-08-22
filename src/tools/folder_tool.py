@@ -1,11 +1,14 @@
-import os
 import logging
-from pathlib import Path
 
 from tools.base_tool import BaseTool
 from tools.tool_category import ToolCategory
 from tools.tool_permission import ToolPermission
 from config.settings import settings
+from tools.path_security import (
+    OUTSIDE_WORKSPACE_ERROR,
+    is_protected_path,
+    resolve_workspace_path,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -42,14 +45,17 @@ class FolderTool(BaseTool):
 
     def execute(self, path=".", show_hidden=False):
 
-        root = Path(settings.file_search_root_path).resolve()
-        target = (root / path).resolve()
-
-        if not str(target).startswith(str(root)):
+        root, target = resolve_workspace_path(
+            settings.file_search_root_path, path
+        )
+        if target is None:
             return {
                 "success": False,
-                "error": "Access denied: path is outside workspace"
+                "error": OUTSIDE_WORKSPACE_ERROR
             }
+
+        if is_protected_path(target, root):
+            return {"success": False, "error": "Access denied: protected path"}
 
         if not target.exists():
             return {
@@ -75,6 +81,9 @@ class FolderTool(BaseTool):
             files = []
 
             for entry in entries:
+                _, safe_entry = resolve_workspace_path(root, entry)
+                if safe_entry is None or is_protected_path(safe_entry, root):
+                    continue
                 if entry.name.startswith(".") and not show_hidden:
                     continue
                 if entry.is_dir():

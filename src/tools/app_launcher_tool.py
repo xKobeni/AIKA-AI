@@ -156,7 +156,12 @@ class AppLauncherTool(BaseTool):
 
         if name in URI_APPS:
             try:
-                subprocess.Popen(["start", "", URI_APPS[name]], shell=True)
+                if os.name != "nt":
+                    return {
+                        "success": False,
+                        "error": f"'{app_name}' is only available on Windows"
+                    }
+                os.startfile(URI_APPS[name])
                 return {"success": True, "message": f"Opened {app_name}"}
             except Exception as e:
                 return {"success": False, "error": f"Failed to open {app_name}: {e}"}
@@ -177,8 +182,7 @@ class AppLauncherTool(BaseTool):
                 try:
                     if "!" in fallback:
                         subprocess.Popen(
-                            ["explorer.exe", f"shell:AppsFolder\\{fallback}"],
-                            shell=True
+                            ["explorer.exe", f"shell:AppsFolder\\{fallback}"]
                         )
                     else:
                         cmd_list = [fallback]

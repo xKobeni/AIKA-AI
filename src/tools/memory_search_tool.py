@@ -18,6 +18,9 @@ class MemorySearchTool(BaseTool):
         self.retrieval_service = retrieval_service
         self.retrieval_limit = settings.memory_retrieval_limit
 
+    def refresh_from_settings(self):
+        self.retrieval_limit = settings.memory_retrieval_limit
+
     @property
     def name(self):
 

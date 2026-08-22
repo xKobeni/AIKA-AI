@@ -14,6 +14,9 @@ class ToolHandler:
         self.agent_registry = agent_registry
         self.crawl_max_chars = settings.crawl_content_max_chars
 
+    def refresh_from_settings(self):
+        self.crawl_max_chars = settings.crawl_content_max_chars
+
     def handle(
         self,
         tool_request,

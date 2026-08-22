@@ -3,6 +3,7 @@ from tools.base_tool import BaseTool
 from tools.tool_category import ToolCategory
 from tools.tool_permission import ToolPermission
 from config.settings import settings
+from tools.path_security import iter_scannable_files
 
 
 class FileSearchTool(BaseTool):
@@ -12,7 +13,13 @@ class FileSearchTool(BaseTool):
     permission = ToolPermission.MEDIUM
 
     def __init__(self):
-        self.max_results = 20
+        max_results = getattr(settings, "file_search_max_results", 20)
+        max_files = getattr(settings, "file_scan_max_files", 10000)
+        self.max_results = max_results if isinstance(max_results, int) else 20
+        self.max_files = max_files if isinstance(max_files, int) else 10000
+
+    def refresh_from_settings(self):
+        self.__init__()
 
     @property
     def name(self):
@@ -45,11 +52,13 @@ class FileSearchTool(BaseTool):
 
         results = []
 
-        for file in root.rglob("*"):
-
-            if file.is_file() and query.lower() in file.name.lower():
-
-                results.append(str(file))
+        for safe_file in iter_scannable_files(
+            root, max_files=self.max_files
+        ):
+            if query.lower() in safe_file.name.lower():
+                results.append(str(safe_file))
+                if len(results) >= self.max_results:
+                    break
 
         if not results:
             return {
@@ -60,5 +69,5 @@ class FileSearchTool(BaseTool):
 
         return {
             "success": True,
-            "file_paths": results[:self.max_results]
+            "file_paths": results
         }

@@ -26,6 +26,10 @@ class PlanExecutor:
         self.log_path = settings.execution_log_path
         self.top_sources_count = settings.plan_top_sources_count
 
+    def refresh_from_settings(self):
+        self.log_path = settings.execution_log_path
+        self.top_sources_count = settings.plan_top_sources_count
+
     def execute_plan(
         self,
         plan
