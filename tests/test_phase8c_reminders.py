@@ -113,6 +113,21 @@ def test_schedule_time_supports_named_timezone_and_rejects_unknown_zone():
         normalize_schedule_time("2026-08-23T18:00:00", "Mars/Olympus")
 
 
+def test_utc_timezone_does_not_require_an_external_timezone_database(monkeypatch):
+    import reminders.recurrence as recurrence
+
+    monkeypatch.setattr(
+        recurrence,
+        "ZoneInfo",
+        Mock(side_effect=recurrence.ZoneInfoNotFoundError("missing tzdata")),
+    )
+
+    name, zone = recurrence.get_timezone("UTC")
+
+    assert name == "UTC"
+    assert zone is timezone.utc
+
+
 def test_interval_recurrence_skips_missed_intervals_without_flooding():
     from reminders.recurrence import next_occurrence
 

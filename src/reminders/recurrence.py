@@ -9,6 +9,10 @@ def get_timezone(timezone_name):
     timezone_name = timezone_name.strip()
     if len(timezone_name) > 64:
         raise ValueError("timezone exceeds 64 characters")
+    # UTC is part of the standard library and should remain available even on
+    # platforms (notably Windows) that do not provide an IANA timezone database.
+    if timezone_name == "UTC":
+        return timezone_name, timezone.utc
     try:
         return timezone_name, ZoneInfo(timezone_name)
     except ZoneInfoNotFoundError as exc:

@@ -61,6 +61,7 @@ Key packages:
 | `numpy` | Numerical operations |
 | `psutil` | System information (CPU, RAM, disk) |
 | `rich` | Formatted terminal output for test suite |
+| `tzdata` | IANA timezone data for reminders, including Windows support |
 
 ---
 
