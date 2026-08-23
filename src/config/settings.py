@@ -64,6 +64,63 @@ class Settings:
         # Conversation
         self.conversation_max_count: int = int(os.getenv("CONVERSATION_MAX_COUNT", "100"))
 
+        # Durable background jobs
+        self.job_worker_poll_interval: float = float(os.getenv(
+            "JOB_WORKER_POLL_INTERVAL", "0.5"
+        ))
+        self.job_payload_max_chars: int = int(os.getenv(
+            "JOB_PAYLOAD_MAX_CHARS", "50000"
+        ))
+        self.job_result_max_chars: int = int(os.getenv(
+            "JOB_RESULT_MAX_CHARS", "200000"
+        ))
+        self.job_default_max_attempts: int = int(os.getenv(
+            "JOB_DEFAULT_MAX_ATTEMPTS", "3"
+        ))
+        self.job_retry_delay_seconds: int = int(os.getenv(
+            "JOB_RETRY_DELAY_SECONDS", "5"
+        ))
+
+        # Reminders and scheduling
+        self.reminder_default_timezone: str = os.getenv(
+            "REMINDER_DEFAULT_TIMEZONE", "UTC"
+        )
+        self.reminder_message_max_chars: int = int(os.getenv(
+            "REMINDER_MESSAGE_MAX_CHARS", "2000"
+        ))
+        self.reminder_min_interval_seconds: int = int(os.getenv(
+            "REMINDER_MIN_INTERVAL_SECONDS", "60"
+        ))
+        self.reminder_reconcile_limit: int = int(os.getenv(
+            "REMINDER_RECONCILE_LIMIT", "1000"
+        ))
+
+        # Persistent orchestration
+        self.orchestration_task_max_chars: int = int(os.getenv(
+            "ORCHESTRATION_TASK_MAX_CHARS", "10000"
+        ))
+        self.orchestration_result_max_chars: int = int(os.getenv(
+            "ORCHESTRATION_RESULT_MAX_CHARS", "50000"
+        ))
+        self.orchestration_max_agents: int = int(os.getenv(
+            "ORCHESTRATION_MAX_AGENTS", "8"
+        ))
+        self.orchestration_max_steps: int = int(os.getenv(
+            "ORCHESTRATION_MAX_STEPS", "80"
+        ))
+        self.orchestration_max_team_turns: int = int(os.getenv(
+            "ORCHESTRATION_MAX_TEAM_TURNS", "10"
+        ))
+        self.orchestration_step_max_attempts: int = int(os.getenv(
+            "ORCHESTRATION_STEP_MAX_ATTEMPTS", "2"
+        ))
+        self.orchestration_job_max_attempts: int = int(os.getenv(
+            "ORCHESTRATION_JOB_MAX_ATTEMPTS", "5"
+        ))
+        self.orchestration_reconcile_limit: int = int(os.getenv(
+            "ORCHESTRATION_RECONCILE_LIMIT", "1000"
+        ))
+
         # Tools / Web
         self.web_search_max_results: int = int(os.getenv("WEB_SEARCH_MAX_RESULTS", "5"))
         self.tool_calling_enabled: bool = os.getenv("TOOL_CALLING_ENABLED", "true").lower() == "true"

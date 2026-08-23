@@ -15,6 +15,18 @@ CATEGORIES = {
                "memory_category_boost_skill", "memory_max_per_category", "memory_validator_min_score"],
     "context": ["max_context_tokens", "max_profile_per_category", "recent_conversations_count"],
     "conversation": ["conversation_max_count"],
+    "jobs": ["job_worker_poll_interval", "job_payload_max_chars",
+             "job_result_max_chars", "job_default_max_attempts",
+             "job_retry_delay_seconds"],
+    "reminders": ["reminder_default_timezone", "reminder_message_max_chars",
+                  "reminder_min_interval_seconds", "reminder_reconcile_limit"],
+    "orchestration": ["orchestration_task_max_chars",
+                      "orchestration_result_max_chars",
+                      "orchestration_max_agents", "orchestration_max_steps",
+                      "orchestration_max_team_turns",
+                      "orchestration_step_max_attempts",
+                      "orchestration_job_max_attempts",
+                      "orchestration_reconcile_limit"],
     "web": ["web_search_max_results", "web_crawl_max_workers", "web_crawl_max_urls",
             "web_crawl_max_redirects", "web_crawl_timeout",
             "web_crawl_max_response_bytes", "web_crawl_allow_private_network"],
@@ -303,6 +315,16 @@ class ConfigHandler:
             "context_session_summaries_count", "crawl_content_max_chars",
             "file_grep_max_results", "file_search_max_results",
             "file_scan_max_files", "llm_timeout",
+            "job_default_max_attempts", "job_payload_max_chars",
+            "job_result_max_chars", "job_retry_delay_seconds",
+            "reminder_message_max_chars", "reminder_min_interval_seconds",
+            "reminder_reconcile_limit",
+            "orchestration_task_max_chars", "orchestration_result_max_chars",
+            "orchestration_max_agents", "orchestration_max_steps",
+            "orchestration_max_team_turns",
+            "orchestration_step_max_attempts",
+            "orchestration_job_max_attempts",
+            "orchestration_reconcile_limit",
             "max_calculation_length", "max_context_tokens",
             "max_input_length", "max_profile_per_category",
             "memory_candidate_multiplier", "memory_extraction_max_per_message",
@@ -320,11 +342,21 @@ class ConfigHandler:
             "memory_recency_weight", "memory_sim_weight",
             "memory_validator_min_score", "memory_dedup_threshold",
         }
+        positive_number_settings = {"job_worker_poll_interval"}
 
         if key in positive_integer_settings and value <= 0:
             return f"{key} must be greater than zero."
         if key in unit_interval_settings and not 0 <= value <= 1:
             return f"{key} must be between 0 and 1."
+        if key in positive_number_settings and value <= 0:
+            return f"{key} must be greater than zero."
+        if key == "reminder_default_timezone":
+            from reminders.recurrence import get_timezone
+
+            try:
+                get_timezone(value)
+            except ValueError as exc:
+                return str(exc)
         return None
 
     def _switch_model(self, text):

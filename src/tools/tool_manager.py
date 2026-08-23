@@ -1,43 +1,14 @@
 import json
 import os
 import logging
-import re
 from datetime import datetime
 
+from security.redaction import redact_sensitive
 from tools.tool_permission import ToolPermission
 
 logger = logging.getLogger(__name__)
 
-_SENSITIVE_KEYS = {
-    "api_key", "apikey", "authorization", "content", "credential",
-    "new_text", "old_text", "password", "secret", "token",
-}
-_SENSITIVE_KEY_PATTERN = re.compile(
-    r"(?i)(?:^|[_-])(?:api[_-]?key|auth(?:orization)?|credential|password|passwd|"
-    r"private[_-]?key|secret|token)(?:$|[_-])"
-)
-_SECRET_VALUE_PATTERN = re.compile(
-    r"(?i)(bearer\s+|(?:api[_-]?key|password|secret|token)\s*[=:]\s*)"
-    r"([^\s,;]+)"
-)
-
-
-def _redact_sensitive(value, key=None):
-    if key and (
-        key.lower() in _SENSITIVE_KEYS
-        or _SENSITIVE_KEY_PATTERN.search(key)
-    ):
-        return "[REDACTED]"
-    if isinstance(value, dict):
-        return {
-            item_key: _redact_sensitive(item_value, str(item_key))
-            for item_key, item_value in value.items()
-        }
-    if isinstance(value, (list, tuple)):
-        return [_redact_sensitive(item) for item in value]
-    if isinstance(value, str):
-        return _SECRET_VALUE_PATTERN.sub(r"\1[REDACTED]", value)
-    return value
+_redact_sensitive = redact_sensitive
 
 
 class ToolManager:
@@ -48,12 +19,18 @@ class ToolManager:
         self._high_permission_tools = set()
         self._confirmation_handler = confirmation_handler
         self._event_handler = event_handler
+        self._high_permission_policy = None
 
     def set_confirmation_handler(self, handler):
         self._confirmation_handler = handler
 
     def set_event_handler(self, handler):
         self._event_handler = handler
+
+    def set_high_permission_policy(self, policy):
+        if policy is not None and not callable(policy):
+            raise TypeError("high-permission policy must be callable")
+        self._high_permission_policy = policy
 
     def _emit_event(self, event_type, payload):
         if self._event_handler is None:
@@ -116,13 +93,25 @@ class ToolManager:
     def _check_confirmation(self, tool_name, parameters):
         from config.settings import settings
 
-        if not settings.tool_call_confirm_high_permission:
-            return True
-
         if not self.is_high_permission(tool_name):
             return True
 
         safe_parameters = _redact_sensitive(parameters)
+        if self._high_permission_policy is not None:
+            try:
+                return bool(
+                    self._high_permission_policy(tool_name, safe_parameters)
+                )
+            except Exception as exc:
+                logger.warning(
+                    "High-permission policy failed closed: %s",
+                    type(exc).__name__,
+                )
+                return False
+
+        if not settings.tool_call_confirm_high_permission:
+            return True
+
         if self._confirmation_handler is not None:
             try:
                 return bool(

@@ -22,6 +22,20 @@ AIKA AI/
 │   │   ├── events.py                        # Typed application events and results
 │   │   ├── confirmation.py                  # Transport-neutral approval coordination
 │   │   └── service.py                       # AikaService facade over AikaBrain
+│   ├── jobs/
+│   │   ├── types.py                         # Job state, definitions, control exceptions
+│   │   └── runtime.py                       # Registered handlers and managed worker
+│   ├── reminders/
+│   │   ├── recurrence.py                    # Timezone and recurrence calculations
+│   │   ├── scheduler.py                     # Reminder jobs and reconciliation
+│   │   ├── commands.py                      # Explicit CLI reminder controls
+│   │   └── types.py                         # Reminder lifecycle state
+│   ├── orchestration/
+│   │   ├── runtime.py                       # Persistent run execution and recovery
+│   │   ├── commands.py                      # Explicit CLI run controls
+│   │   └── types.py                         # Run and step lifecycle state
+│   ├── security/
+│   │   └── redaction.py                     # Shared credential redaction
 │   ├── config/
 │   │   ├── __init__.py
 │   │   ├── settings.py                      # Settings from .env
@@ -68,12 +82,15 @@ AIKA AI/
 │   │   ├── __init__.py
 │   │   ├── base.py                          # SQLAlchemy DeclarativeBase
 │   │   ├── db.py                            # Engine & session factory
-│   │   └── models.py                        # ORM models (Memory, Conversation, Session, Agent)
+│   │   └── models.py                        # ORM models, jobs, and reminders
 │   ├── repositories/
 │   │   ├── __init__.py
 │   │   ├── memory_repository.py             # Memory CRUD
 │   │   ├── conversation_repository.py       # Conversation CRUD + semantic search
-│   │   └── session_repository.py            # Session CRUD
+│   │   ├── session_repository.py            # Session CRUD
+│   │   ├── job_repository.py                # Atomic job transitions and event history
+│   │   ├── reminder_repository.py           # Schedules and occurrence outbox
+│   │   └── orchestration_repository.py      # Transactional runs and steps
 │   ├── handlers/
 │   │   ├── __init__.py
 │   │   ├── chat_handler.py                  # Generates chat responses (sync + streaming)
@@ -86,6 +103,7 @@ AIKA AI/
 │   ├── tools/
 │   │   ├── __init__.py
 │   │   ├── tool_manager.py                  # Registry & execution (confirmation + audit)
+│   │   ├── reminder_tool.py                 # AI-facing reminder operations
 │   │   ├── default_tools.py                  # Default tool composition/registration
 │   │   ├── tool_permission.py               # Permission levels (LOW/MEDIUM/HIGH)
 │   │   ├── tool_category.py                 # Tool categorization
@@ -198,6 +216,28 @@ ResponseFinalizer (persist response, update metrics, enforce retention)
 Background: MemoryExtractor.extract_memory()
 ```
 
+Durable work follows a separate application path: a caller registers a bounded
+job handler, `AikaService.enqueue_job()` validates and persists the request, and
+the managed `JobWorker` atomically claims it from PostgreSQL. Each transition is
+recorded in `job_events`. Retry-safe interrupted work is requeued on startup;
+unknown or unsafe interrupted work waits for explicit approval. Phase 8B supplies
+this substrate for reminder scheduling and persistent orchestration.
+
+Phase 8C adds reminders as a consumer of that substrate. A reminder has a stable
+database identity and revision; each due time is a delayed `reminder.deliver`
+job. Delivery atomically creates a unique occurrence record before calculating
+the next recurrence. The occurrence remains in the due outbox until acknowledged.
+Startup reconciliation restores missing delayed jobs, while revision checks make
+old jobs harmless after rescheduling or cancellation.
+
+Phase 8D adds persistent orchestration without replacing the original synchronous
+commands. Each durable run owns an ordered set of PostgreSQL-backed steps and one
+non-retry-safe `orchestration.execute` job. Step input and output are committed
+between agent calls. An interrupted running step waits for explicit approval
+before its bounded second attempt, preventing silent repetition of tool side
+effects. A shared service execution lock prevents background agent calls from
+racing interactive use of the stateful brain.
+
 ### Key Flows
 
 1. **Chat flow** — Quick detection identifies simple greetings and skips the intent classifier. The model router selects the fast model (qwen2.5:3b) for simple chat. The agent loop calls the LLM, which responds directly without tool use.
@@ -230,7 +270,7 @@ Background: MemoryExtractor.extract_memory()
 - **`AgentRegistry`** — Manages agent profiles with JSON persistence (`data/agents.json`). Supports create, update, set_model, set_persona. Auto-discovers persona files from `src/config/personas/`.
 
 ### Application (`src/application/`)
-- **`AikaService`** — Transport-neutral facade used by the CLI. Serializes access to the stateful brain, streams typed events, coordinates tool approvals, supports best-effort cancellation, exposes bounded session/history views, and owns runtime shutdown.
+- **`AikaService`** — Transport-neutral facade used by the CLI. Serializes access to the stateful brain, streams typed events, coordinates tool approvals, supports best-effort cancellation, exposes bounded session/history/job views, and owns brain and job-worker shutdown.
 - **`AikaEvent` / `AikaResult`** — Stable event and collected-result contracts for text deltas, tool activity, approvals, completion, cancellation, and errors.
 - **`ConfirmationCoordinator`** — Holds pending approvals outside stdin so a CLI, GUI, or API client can resolve the same high-permission tool request without bypassing `ToolManager` policy.
 
@@ -260,16 +300,36 @@ Background: MemoryExtractor.extract_memory()
 - **`MemoryCategory`** — Classifies memories into categories (fact, project, goal, skill, etc.).
 - **`MemoryProfile`** — Scores memories against user profile traits.
 
+### Durable Jobs (`src/jobs/`)
+- **`JobRuntime`** — Registry and public facade for validated job definitions. Only registered job types can be enqueued or executed.
+- **`JobWorker`** — One managed daemon worker that polls PostgreSQL, cooperatively handles cancellation, and never executes unregistered payloads.
+- **`JobContext`** — Handler interface for progress, cancellation checks, and explicit approval gates.
+- **Recovery policy** — Retry-safe interrupted jobs may resume within their attempt bound. Unsafe or unknown interrupted work waits for approval when an attempt remains; exhausted work fails without exceeding the hard limit.
+
+### Reminders (`src/reminders/`)
+- **`ReminderScheduler`** — Registers the retry-safe reminder job, creates delayed occurrences, emits transport callbacks, and reconciles active schedules before the worker starts.
+- **Recurrence policy** — Supports bounded intervals plus daily and weekly local-wall-time schedules using IANA timezones. Missed intervals advance to the first future occurrence instead of flooding the user.
+- **Occurrence outbox** — Every triggered reminder creates one unique, durable occurrence. CLI and future transports can list and acknowledge due occurrences independently of job history.
+- **`ReminderTool`** — Makes create/list/due/acknowledge/cancel/reschedule operations available to AIKA's normal native/fallback tool-calling loop.
+
+### Persistent Orchestration (`src/orchestration/`)
+- **`PersistentOrchestrator`** — Registers one non-retry-safe durable handler and commits every delegate, chain, independent, or team contribution as a separate step.
+- **Recovery policy** — Interrupted steps move to durable approval instead of automatically repeating. Explicit resume can retry a failed run with a new revision and reset attempt bound.
+- **Dependency policy** — Chain and team steps depend on the previous step; independent-mode steps have no dependencies. The current single job worker executes durable steps one at a time even when they are logically independent.
+- **Tool safety** — High-permission tools are denied by default for durable runs. `--allow-high` requires run-level approval and installs a temporary fail-closed execution policy independent of the global confirmation setting.
+- **Compatibility** — Existing `delegate`, `chain`, `parallel`, and `team` commands remain synchronous. Durable commands use the explicit `start ... | ...` syntax.
+
 ### Database (`src/database/`)
-- **`models.py`** — Defines `Memory`, `Conversation`, `Session`, and `Agent` via SQLAlchemy ORM. All tables include `agent_id` columns for multi-agent isolation.
+- **`models.py`** — Defines memory, conversation, session, job, reminder, and orchestration persistence. Durable records carry owner, agent, and session scope where applicable.
 - **`db.py`** — Creates the engine and session factory from `DATABASE_URL`.
+- **`JobRepository`** — Owns transactional enqueue, `FOR UPDATE SKIP LOCKED` claims, progress, retry, cancellation, approval, recovery, and append-only job events.
 
 ### Tools (`src/tools/`)
 - **`ToolManager`** — Registry of all available tools. Includes confirmation flow for HIGH permission tools (`TOOL_CALL_CONFIRM_HIGH`), audit logging (`AUDIT_LOG_ENABLED`), and `get_native_tool_schemas()` for Ollama's function calling API.
 - **`default_tools.py`** — Keeps construction of the built-in tool set outside `AikaBrain`, reducing composition-root coupling while preserving the existing registry and tool interfaces.
 - **`base_tool`** — Abstract base class with `execute(input) → result`, `get_schema()`, and `get_native_schema()` (OpenAI-compatible format).
 - **`ToolPermission`** — Three-tier enum: LOW, MEDIUM, HIGH.
-- **Built-in tools:** Calculator, File Search, File Read, File Read Range, File Write (protected paths), File Edit, File Multi-Edit, File Delete (protected paths), File Append, File Grep, File Mkdir, Web Search, Web Crawl, Memory Search, Shell (strengthened blocklist), App Launcher, Folder, System Info, Git, Test Runner.
+- **Built-in tools:** Calculator, Reminder, File Search, File Read, File Read Range, File Write (protected paths), File Edit, File Multi-Edit, File Delete (protected paths), File Append, File Grep, File Mkdir, Web Search, Web Crawl, Memory Search, Shell (strengthened blocklist), App Launcher, Folder, System Info, Git, Test Runner.
 - **Bounded scans and guarded crawling:** File search/grep prune dependency and cache directories and enforce a maximum inspected-file count. Multi-URL crawling uses a bounded worker pool. HTTP fetches validate schemes, DNS addresses, response sizes, and every redirect before Crawl4AI processes the content offline.
 - **Safe shell execution:** Commands use argument arrays and `shell=False` by default. Explicit unsafe mode is disabled by default, and all working directories must remain in configured workspace subdirectories.
 - **`AppRegistry`** — Windows-only application scanner (Registry `App Paths`, Start Menu `.lnk` parsing via `pywin32`, UWP via `Get-StartApps`). Non-Windows platforms skip these capabilities cleanly; `pywin32` is installed only on Windows.
@@ -336,18 +396,82 @@ Background: MemoryExtractor.extract_memory()
 | `summary` | `TEXT` | Auto-generated session summary (nullable) |
 | `agent_id` | `VARCHAR(50)` | Agent scope (NULL = shared/default) |
 
-### `agents` table
+### `jobs` table
 
 | Column | Type | Description |
 |---|---|---|
-| `id` | `VARCHAR(50) PK` | Agent identifier (e.g. "aika", "researcher") |
-| `name` | `VARCHAR(100)` | Display name |
-| `persona_path` | `VARCHAR(500)` | Path to persona text file (nullable) |
-| `model` | `VARCHAR(100)` | Custom LLM model override (nullable) |
-| `allowed_tools` | `TEXT` | JSON list of allowed tool names (NULL = all tools) |
-| `max_iterations` | `INTEGER` | Max agent loop iterations (default: 5) |
-| `is_active` | `BOOLEAN` | Whether agent is active (default: true) |
-| `created_at` | `TIMESTAMP` | Creation time |
+| `id` | `VARCHAR(32) PK` | Durable job identifier |
+| `job_type` | `VARCHAR(100)` | Registered handler name |
+| `payload` | `JSONB` | Validated, bounded, redacted request |
+| `status` | `VARCHAR(30)` | Queued/running/approval/terminal state |
+| `idempotency_key` | `VARCHAR(200)` | Optional unique request key |
+| `progress` | `INTEGER` | Bounded completion percentage |
+| `attempt_count` / `max_attempts` | `INTEGER` | Retry accounting and hard limit |
+| `result` / `error_type` | `JSONB` / `VARCHAR(200)` | Bounded output or generic failure type |
+| `cancel_requested` | `BOOLEAN` | Cooperative cancellation signal |
+| `approval_request` / `approval_granted` | `JSONB` / `BOOLEAN` | Durable approval state |
+| `available_at` | `TIMESTAMPTZ` | Earliest atomic-claim time |
+| `created_at` / `updated_at` | `TIMESTAMPTZ` | Lifecycle timestamps |
+| `started_at` / `finished_at` | `TIMESTAMPTZ` | Execution timestamps |
+
+### `job_events` table
+
+| Column | Type | Description |
+|---|---|---|
+| `id` | `BIGSERIAL PK` | Ordered event identifier |
+| `job_id` | `VARCHAR(32) FK` | Owning job; cascades on deletion |
+| `event_type` | `VARCHAR(50)` | Lifecycle transition name |
+| `data` | `JSONB` | Bounded, redacted event metadata |
+| `created_at` | `TIMESTAMPTZ` | Event timestamp |
+
+### `reminders` table
+
+| Column | Type | Description |
+|---|---|---|
+| `id` | `VARCHAR(32) PK` | Stable reminder identifier |
+| `message` | `TEXT` | Bounded, redacted reminder text |
+| `timezone` | `VARCHAR(64)` | IANA timezone for local recurrences |
+| `recurrence` | `JSONB` | Interval, daily, or weekly rule; NULL for one-time |
+| `status` | `VARCHAR(20)` | Active, completed, or cancelled |
+| `revision` | `INTEGER` | Invalidates stale jobs after rescheduling |
+| `next_run_at` / `next_job_id` | `TIMESTAMPTZ` / `VARCHAR(32)` | Next occurrence and linked delayed job |
+| `trigger_count` / `last_triggered_at` | `INTEGER` / `TIMESTAMPTZ` | Delivery summary |
+| `owner_id` / `agent_id` / `session_id` | `VARCHAR` | Scope metadata |
+
+### `reminder_occurrences` table
+
+| Column | Type | Description |
+|---|---|---|
+| `id` | `VARCHAR(32) PK` | Due occurrence identifier |
+| `reminder_id` | `VARCHAR(32) FK` | Owning reminder; cascades on deletion |
+| `revision` / `scheduled_for` | `INTEGER` / `TIMESTAMPTZ` | Unique scheduled occurrence |
+| `job_id` | `VARCHAR(32) FK` | Delivery job, retained as nullable history |
+| `triggered_at` | `TIMESTAMPTZ` | Actual trigger time |
+| `acknowledged_at` | `TIMESTAMPTZ` | NULL while still due |
+
+### `orchestration_runs` table
+
+| Column | Type | Description |
+|---|---|---|
+| `id` | `VARCHAR(32) PK` | Stable persistent run identifier |
+| `kind` / `status` | `VARCHAR` | Delegate/chain/parallel/team and lifecycle state |
+| `task` / `agent_ids` | `TEXT` / `JSONB` | Bounded redacted task and selected agents |
+| `revision` / `current_job_id` | `INTEGER` / `VARCHAR(32)` | Manual-resume generation and linked durable job |
+| `allow_high_tools` / `approved_at` | `BOOLEAN` / `TIMESTAMPTZ` | Explicit autonomous high-permission policy |
+| `total_steps` / `completed_steps` | `INTEGER` | Durable progress summary |
+| `result` / `error_type` | `JSONB` / `VARCHAR(200)` | Bounded final result or generic failure type |
+| `owner_id` / `agent_id` / `session_id` | `VARCHAR` | Scope metadata |
+
+### `orchestration_steps` table
+
+| Column | Type | Description |
+|---|---|---|
+| `id` / `run_id` | `VARCHAR(32)` | Step identity and cascading parent run |
+| `position` / `agent_id` / `turn` | `INTEGER` / `VARCHAR` / `INTEGER` | Stable execution order and assignee |
+| `depends_on_step_id` | `VARCHAR(32)` | Nullable dependency link |
+| `status` | `VARCHAR(20)` | Pending/running/completed/failed/cancelled/skipped |
+| `input_text` / `result_text` | `TEXT` | Bounded persisted execution context and result |
+| `attempt_count` / `max_attempts` | `INTEGER` | Recovery attempt bound |
 
 ---
 

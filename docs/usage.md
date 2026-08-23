@@ -318,6 +318,95 @@ AIKA > Commands: new session, list sessions, resume <id>, delete session <id>, c
 
 ---
 
+## Reminders
+
+AIKA stores reminders in PostgreSQL, so schedules and unacknowledged due
+occurrences survive application restarts. Use an explicit offset in the ISO
+timestamp when possible. A timestamp without an offset uses
+`REMINDER_DEFAULT_TIMEZONE` (UTC by default).
+
+### Create a one-time reminder
+
+```text
+You > remind 2026-08-24T09:00:00+08:00 | Drink water
+AIKA > Reminder scheduled: <reminder_id>
+```
+
+### Create a recurring interval reminder
+
+```text
+You > remind every 30m starting 2026-08-24T09:00:00+08:00 | Stand and stretch
+AIKA > Reminder scheduled: <reminder_id>
+```
+
+Intervals accept `m`, `h`, or `d`. They must meet the configured
+`REMINDER_MIN_INTERVAL_SECONDS` safety limit. AIKA's reminder tool also supports
+daily and weekly local-time recurrence when a model creates the schedule.
+
+### Review and manage reminders
+
+```text
+You > list reminders
+You > due reminders
+You > ack reminder <occurrence_id>
+You > cancel reminder <reminder_id>
+You > reschedule reminder <reminder_id> 2026-08-25T10:00:00+08:00
+```
+
+`due reminders` lists triggered occurrences that have not been acknowledged.
+Acknowledging an occurrence clears that notification without cancelling future
+occurrences. Rescheduling retains an existing recurrence rule; cancelling stops
+future delivery.
+
+---
+
+## Persistent Orchestration
+
+The existing `delegate`, `chain`, `parallel`, and `team` commands still run
+synchronously. Use the explicit `start` form when a run must preserve its steps,
+progress, and result across application restarts.
+
+```text
+You > start delegate researcher | Investigate the database error
+You > start chain researcher,writer | Research and write a report
+You > start parallel researcher,planner | Analyze the project independently
+You > start team researcher,planner,writer turns=3 | Produce a proposal
+```
+
+Durable independent-mode steps currently execute one at a time through AIKA's
+single managed worker. Their inputs remain independent; the command does not yet
+provide concurrent background model calls.
+
+### Inspect and control runs
+
+```text
+You > list orchestrations
+You > show orchestration <run_id>
+You > cancel orchestration <run_id>
+You > resume orchestration <run_id>
+```
+
+`show` includes persisted step status, attempt counts, generic errors, and the
+bounded final result. `resume` approves an interrupted run or creates a new
+revision for an explicitly retried failed step. Completed and cancelled runs
+cannot be resumed.
+
+### High-permission tools
+
+High-permission tools are denied for durable runs by default. To request them:
+
+```text
+You > start chain --allow-high planner,writer | Update the approved files
+You > approve orchestration <run_id>
+```
+
+Use `reject orchestration <run_id>` to cancel instead. Approval applies to the
+named run, its agents, and its bounded task; it is not a global permission
+change. If AIKA stops while an unsafe step is running, the job waits for another
+explicit approval before repeating that step.
+
+---
+
 ## OS Commands
 
 ### Run shell commands

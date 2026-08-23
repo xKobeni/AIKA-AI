@@ -176,8 +176,10 @@ def test_migration_status_excludes_already_applied_versions():
         status = MigrationRunner(engine).status()
 
     assert status["current_version"] == 1
-    assert status["latest_version"] == 2
-    assert status["pending"] == [MIGRATIONS[1]]
+    assert status["latest_version"] == 5
+    assert status["pending"] == [
+        MIGRATIONS[1], MIGRATIONS[2], MIGRATIONS[3], MIGRATIONS[4]
+    ]
 
 
 def test_each_migration_uses_its_own_transaction_and_records_version():

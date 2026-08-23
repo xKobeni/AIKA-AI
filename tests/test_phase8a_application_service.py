@@ -289,6 +289,7 @@ def test_cli_consumes_service_events_and_resolves_approval(capsys):
     fake_service = Mock()
     fake_service.current_agent_id = "aika"
     fake_service.current_session_id = "session-1"
+    fake_service.get_due_reminders.return_value = []
     fake_service.stream.return_value = iter((
         AikaEvent(
             AikaEventType.APPROVAL_REQUIRED,
@@ -323,3 +324,5 @@ def test_cli_consumes_service_events_and_resolves_approval(capsys):
         "confirmation-1", True
     )
     fake_service.close.assert_called_once_with(wait=True)
+    fake_service.set_reminder_handler.assert_called_once()
+    fake_service.set_orchestration_handler.assert_called_once()

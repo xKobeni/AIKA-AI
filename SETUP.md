@@ -163,7 +163,9 @@ Optional variables:
 python src/create_tables.py
 ```
 
-This creates the `memories`, `conversations`, and `sessions` tables with
+This creates the `memories`, `conversations`, `sessions`, `jobs`,
+`job_events`, `reminders`, `reminder_occurrences`, `orchestration_runs`, and
+`orchestration_steps` tables with
 validated `pgvector` columns and `agent_id` columns for multi-agent isolation.
 Agent profiles are stored authoritatively in `data/agents.json`.
 
@@ -188,7 +190,11 @@ python src/migrate_db.py --apply
 Each migration runs in its own transaction. Migration 1 adds the documented
 session cascade and memory-source foreign keys. Migration 2 preserves the
 unused ORM agent table by renaming it to `agents_legacy`, leaving
-`data/agents.json` as the only active agent source of truth.
+`data/agents.json` as the only active agent source of truth. Migration 3 adds
+the durable job and job-event schema used by the managed background worker.
+Migration 4 adds durable reminder schedules and acknowledgement records.
+Migration 5 adds persistent orchestration runs, dependency-linked steps, and
+restart-safe execution state.
 
 ---
 

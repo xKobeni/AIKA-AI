@@ -101,6 +101,29 @@ Each agent has:
 | **Parallel** | Multiple agents work simultaneously, results are combined. |
 | **Team** | Agents collaborate in a shared conversation thread with a shared workspace. Terminates on `[TEAM_DONE]` marker or max turns (default: 10). |
 
+The original commands execute synchronously. Persistent variants use `start`
+commands and store every run and step in PostgreSQL. Durable independent-mode
+steps retain independent inputs but are currently processed one at a time by the
+single managed job worker.
+
+Persistent orchestration commands:
+
+```text
+start delegate researcher | Investigate the issue
+start chain researcher,writer | Research and write a report
+start parallel researcher,planner | Analyze the project independently
+start team researcher,planner,writer turns=3 | Produce a proposal
+list orchestrations
+show orchestration <run_id>
+cancel orchestration <run_id>
+resume orchestration <run_id>
+```
+
+Add `--allow-high` after the mode to request autonomous access to
+high-permission tools. Such a run waits for `approve orchestration <run_id>` or
+`reject orchestration <run_id>` before its first step. Interrupted unsafe work
+also waits for explicit approval before it can repeat.
+
 ### Tool Scoping
 
 Three-layer defense for per-agent tool access:
@@ -612,6 +635,54 @@ Quick detection also handles obvious greetings and simple questions without call
 | Variable | Default | Description |
 |---|---|---|
 | `DATABASE_URL` | `postgresql://postgres:1234@localhost:5432/AIKA_DB` | PostgreSQL connection string |
+
+### Durable Background Jobs
+
+| Variable | Default | Description |
+|---|---|---|
+| `JOB_WORKER_POLL_INTERVAL` | `0.5` | Idle worker polling interval in seconds |
+| `JOB_PAYLOAD_MAX_CHARS` | `50000` | Maximum serialized job payload size |
+| `JOB_RESULT_MAX_CHARS` | `200000` | Maximum serialized job result size |
+| `JOB_DEFAULT_MAX_ATTEMPTS` | `3` | Default hard attempt limit |
+| `JOB_RETRY_DELAY_SECONDS` | `5` | Initial retry delay before exponential backoff |
+
+### Reminders
+
+| Variable | Default | Description |
+|---|---|---|
+| `REMINDER_DEFAULT_TIMEZONE` | `UTC` | IANA timezone used for naive reminder times |
+| `REMINDER_MESSAGE_MAX_CHARS` | `2000` | Maximum stored reminder message length |
+| `REMINDER_MIN_INTERVAL_SECONDS` | `60` | Fastest allowed recurring interval |
+| `REMINDER_RECONCILE_LIMIT` | `1000` | Active schedules checked during startup recovery |
+
+Reminder recurrence supports fixed intervals, daily local times, and weekly
+local times. Missed intervals produce one due occurrence and advance to the
+first future time. Every due occurrence remains visible until acknowledged.
+
+CLI examples:
+
+```text
+remind 2026-08-24T09:00:00+08:00 | Drink water
+remind every 30m starting 2026-08-24T09:00:00+08:00 | Stand and stretch
+list reminders
+due reminders
+ack reminder <occurrence_id>
+cancel reminder <reminder_id>
+reschedule reminder <reminder_id> 2026-08-25T10:00:00+08:00
+```
+
+### Persistent Orchestration
+
+| Variable | Default | Description |
+|---|---|---|
+| `ORCHESTRATION_TASK_MAX_CHARS` | `10000` | Maximum persisted task length |
+| `ORCHESTRATION_RESULT_MAX_CHARS` | `50000` | Maximum persisted step/final result size |
+| `ORCHESTRATION_MAX_AGENTS` | `8` | Maximum agents named in one run |
+| `ORCHESTRATION_MAX_STEPS` | `80` | Maximum precomputed durable steps |
+| `ORCHESTRATION_MAX_TEAM_TURNS` | `10` | Maximum persistent team turns |
+| `ORCHESTRATION_STEP_MAX_ATTEMPTS` | `2` | Per-step interruption/resume bound |
+| `ORCHESTRATION_JOB_MAX_ATTEMPTS` | `5` | Hard durable job claim bound |
+| `ORCHESTRATION_RECONCILE_LIMIT` | `1000` | Nonterminal runs checked at startup |
 
 ### Memory Retrieval
 

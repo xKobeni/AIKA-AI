@@ -23,6 +23,9 @@ AIKA is a living desktop companion that observes, remembers, and grows with its 
 - **Editable Persona** — Personality defined in a plain text file, editable without restarting (`!persona`, `!persona reload`)
 - **Managed Runtime Lifecycle** — Shared sync/stream response finalization and explicit shutdown of background and Ollama client resources
 - **Transport-Neutral Application Service** — Typed streaming, tool approval, cancellation, session/history, agent/model status, and lifecycle events shared by the CLI and future interfaces
+- **Durable Background Job Foundation** — Registered, validated handlers backed by PostgreSQL with idempotent enqueue, atomic claims, progress/events, bounded retries, cancellation, approval waits, and restart recovery
+- **Scheduling and Reminders** — One-time and recurring timezone-aware reminders with live CLI notifications, durable due occurrences, acknowledgement, cancellation, rescheduling, and startup reconciliation
+- **Persistent Orchestration** — Restart-safe delegate, chain, parallel-plan, and team runs with durable steps, bounded results, cancellation, explicit recovery approval, and protected high-permission tool execution
 
 ## Quick Start
 
@@ -33,6 +36,8 @@ source .venv/bin/activate     # macOS / Linux
 pip install -r requirements.txt
 # Configure .env, set up PostgreSQL + pgvector, pull Ollama models
 python src/create_tables.py
+python src/migrate_db.py --status
+python src/migrate_db.py --apply     # Back up an existing database first
 python src/main.py
 ```
 

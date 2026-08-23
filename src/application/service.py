@@ -24,22 +24,71 @@ class _Operation:
 class AikaService:
     """Thin, transport-neutral facade around the existing AikaBrain runtime."""
 
-    def __init__(self, brain=None):
+    def __init__(
+        self,
+        brain=None,
+        job_runtime=None,
+        enable_jobs=False,
+        reminder_scheduler=None,
+        enable_reminders=False,
+        persistent_orchestrator=None,
+        enable_orchestration=False,
+    ):
         if brain is None:
             from brain.brain import AikaBrain
 
             brain = AikaBrain()
         self.brain = brain
         self._lock = threading.Lock()
+        self._brain_execution_lock = threading.RLock()
         self._thread_context = threading.local()
         self._active: Optional[_Operation] = None
         self._closed = False
         self._confirmations = ConfirmationCoordinator()
-
         tool_manager = getattr(self.brain, "tool_manager", None)
         if tool_manager is not None:
             tool_manager.set_confirmation_handler(self._request_confirmation)
             tool_manager.set_event_handler(self._handle_tool_event)
+
+        durable_runtime_enabled = (
+            enable_jobs or enable_reminders or enable_orchestration
+        )
+        if durable_runtime_enabled and job_runtime is None:
+            from jobs.runtime import JobRuntime
+
+            job_runtime = JobRuntime(autostart=False)
+        self.job_runtime = job_runtime
+        if enable_reminders and reminder_scheduler is None:
+            from reminders.scheduler import ReminderScheduler
+
+            reminder_scheduler = ReminderScheduler(job_runtime)
+            reminder_scheduler.start()
+        self.reminder_scheduler = reminder_scheduler
+        if enable_orchestration and persistent_orchestrator is None:
+            from orchestration.runtime import PersistentOrchestrator
+
+            persistent_orchestrator = PersistentOrchestrator(
+                job_runtime,
+                self.brain.agent_registry,
+                self._execute_orchestration_step,
+            )
+            persistent_orchestrator.start()
+        self.persistent_orchestrator = persistent_orchestrator
+
+        if tool_manager is not None:
+            if self.reminder_scheduler is not None:
+                from tools.reminder_tool import ReminderTool
+
+                tool_manager.register_tool(ReminderTool(self))
+
+        if (
+            durable_runtime_enabled
+            and self.job_runtime is not None
+            and not self.job_runtime.running
+        ):
+            self.job_runtime.start()
+        if self.persistent_orchestrator is not None and durable_runtime_enabled:
+            self.persistent_orchestrator.reconcile()
 
     @property
     def current_agent_id(self):
@@ -96,6 +145,32 @@ class AikaService:
             cancel_event=operation.cancelled,
         )
 
+    def _stream_brain_serialized(self, user_input, cancel_event=None):
+        with self._brain_execution_lock:
+            if cancel_event is not None and cancel_event.is_set():
+                return
+            yield from self.brain.process_stream(user_input)
+
+    def _execute_orchestration_step(
+        self, agent_id, input_text, *, allow_high_tools=False
+    ):
+        with self._brain_execution_lock:
+            with self._lock:
+                if self._closed:
+                    raise RuntimeError("AIKA service is closed")
+            tool_manager = getattr(self.brain, "tool_manager", None)
+            if tool_manager is not None:
+                tool_manager.set_high_permission_policy(
+                    lambda _name, _parameters: bool(allow_high_tools)
+                )
+            try:
+                return self.brain.agent_loop.run(
+                    input_text, agent_id=agent_id
+                )
+            finally:
+                if tool_manager is not None:
+                    tool_manager.set_high_permission_policy(None)
+
     def _run_operation(self, operation, user_input):
         self._thread_context.operation = operation
         self._event(
@@ -106,7 +181,9 @@ class AikaService:
             session_id=self.current_session_id,
         )
         try:
-            for chunk in self.brain.process_stream(user_input):
+            for chunk in self._stream_brain_serialized(
+                user_input, operation.cancelled
+            ):
                 if operation.cancelled.is_set():
                     self._event(
                         operation, AikaEventType.CANCELLED, state="cancelled"
@@ -310,10 +387,182 @@ class AikaService:
             "agent_id": self.current_agent_id,
             "session_id": self.current_session_id,
             "configured_model": self.brain.llm.model,
+            "jobs_enabled": self.job_runtime is not None,
+            "job_worker_running": bool(
+                self.job_runtime is not None and self.job_runtime.running
+            ),
+            "reminders_enabled": self.reminder_scheduler is not None,
+            "orchestration_enabled": self.persistent_orchestrator is not None,
         }
         if include_models:
             status["models"] = self.get_models()
         return status
+
+    def register_job(self, definition):
+        if self.job_runtime is None:
+            raise RuntimeError("durable jobs are not enabled")
+        return self.job_runtime.register(definition)
+
+    def enqueue_job(self, job_type, payload, **metadata):
+        if self.job_runtime is None:
+            raise RuntimeError("durable jobs are not enabled")
+        metadata.setdefault("agent_id", self.current_agent_id)
+        metadata.setdefault("session_id", self.current_session_id)
+        return self.job_runtime.enqueue(job_type, payload, **metadata)
+
+    def get_job(self, job_id):
+        if self.job_runtime is None:
+            raise RuntimeError("durable jobs are not enabled")
+        return self.job_runtime.get_job(job_id)
+
+    def get_jobs(self, **filters):
+        if self.job_runtime is None:
+            raise RuntimeError("durable jobs are not enabled")
+        return self.job_runtime.list_jobs(**filters)
+
+    def get_job_events(self, job_id, limit=200):
+        if self.job_runtime is None:
+            raise RuntimeError("durable jobs are not enabled")
+        return self.job_runtime.get_job_events(job_id, limit=limit)
+
+    def cancel_job(self, job_id):
+        if self.job_runtime is None:
+            raise RuntimeError("durable jobs are not enabled")
+        return self.job_runtime.cancel_job(job_id)
+
+    def resolve_job_approval(self, job_id, approved):
+        if self.job_runtime is None:
+            raise RuntimeError("durable jobs are not enabled")
+        return self.job_runtime.resolve_job_approval(job_id, approved)
+
+    def create_reminder(self, message, scheduled_for, **options):
+        if self.reminder_scheduler is None:
+            raise RuntimeError("reminders are not enabled")
+        options.setdefault("agent_id", self.current_agent_id)
+        options.setdefault("session_id", self.current_session_id)
+        return self.reminder_scheduler.create_reminder(
+            message, scheduled_for, **options
+        )
+
+    def get_reminder(self, reminder_id, owner_id=None):
+        if self.reminder_scheduler is None:
+            raise RuntimeError("reminders are not enabled")
+        return self.reminder_scheduler.get_reminder(
+            reminder_id,
+            owner_id=owner_id,
+            agent_id=self.current_agent_id,
+        )
+
+    def get_reminders(self, owner_id=None, **filters):
+        if self.reminder_scheduler is None:
+            raise RuntimeError("reminders are not enabled")
+        filters.setdefault("owner_id", owner_id)
+        filters.setdefault("agent_id", self.current_agent_id)
+        return self.reminder_scheduler.list_reminders(**filters)
+
+    def get_due_reminders(self, owner_id=None, limit=100):
+        if self.reminder_scheduler is None:
+            raise RuntimeError("reminders are not enabled")
+        return self.reminder_scheduler.get_due_reminders(
+            owner_id=owner_id,
+            agent_id=self.current_agent_id,
+            limit=limit,
+        )
+
+    def acknowledge_reminder(self, occurrence_id, owner_id=None):
+        if self.reminder_scheduler is None:
+            raise RuntimeError("reminders are not enabled")
+        return self.reminder_scheduler.acknowledge_reminder(
+            occurrence_id,
+            owner_id=owner_id,
+            agent_id=self.current_agent_id,
+        )
+
+    def cancel_reminder(self, reminder_id, owner_id=None):
+        if self.reminder_scheduler is None:
+            raise RuntimeError("reminders are not enabled")
+        return self.reminder_scheduler.cancel_reminder(
+            reminder_id,
+            owner_id=owner_id,
+            agent_id=self.current_agent_id,
+        )
+
+    def reschedule_reminder(
+        self, reminder_id, scheduled_for, owner_id=None, **options
+    ):
+        if self.reminder_scheduler is None:
+            raise RuntimeError("reminders are not enabled")
+        options.setdefault("owner_id", owner_id)
+        options.setdefault("agent_id", self.current_agent_id)
+        return self.reminder_scheduler.reschedule_reminder(
+            reminder_id, scheduled_for, **options
+        )
+
+    def set_reminder_handler(self, handler):
+        if self.reminder_scheduler is None:
+            raise RuntimeError("reminders are not enabled")
+        return self.reminder_scheduler.set_notification_handler(handler)
+
+    def create_orchestration(self, kind, agent_ids, task, **options):
+        if self.persistent_orchestrator is None:
+            raise RuntimeError("persistent orchestration is not enabled")
+        options.setdefault("agent_id", self.current_agent_id)
+        options.setdefault("session_id", self.current_session_id)
+        return self.persistent_orchestrator.create_run(
+            kind, agent_ids, task, **options
+        )
+
+    def get_orchestration(self, run_id, owner_id=None, include_steps=True):
+        if self.persistent_orchestrator is None:
+            raise RuntimeError("persistent orchestration is not enabled")
+        return self.persistent_orchestrator.get_run(
+            run_id,
+            owner_id=owner_id,
+            agent_id=self.current_agent_id,
+            include_steps=include_steps,
+        )
+
+    def get_orchestrations(self, owner_id=None, **filters):
+        if self.persistent_orchestrator is None:
+            raise RuntimeError("persistent orchestration is not enabled")
+        filters.setdefault("owner_id", owner_id)
+        filters.setdefault("agent_id", self.current_agent_id)
+        return self.persistent_orchestrator.list_runs(**filters)
+
+    def cancel_orchestration(self, run_id, owner_id=None):
+        if self.persistent_orchestrator is None:
+            raise RuntimeError("persistent orchestration is not enabled")
+        return self.persistent_orchestrator.cancel_run(
+            run_id,
+            owner_id=owner_id,
+            agent_id=self.current_agent_id,
+        )
+
+    def resolve_orchestration_approval(
+        self, run_id, approved, owner_id=None
+    ):
+        if self.persistent_orchestrator is None:
+            raise RuntimeError("persistent orchestration is not enabled")
+        return self.persistent_orchestrator.resolve_approval(
+            run_id,
+            approved,
+            owner_id=owner_id,
+            agent_id=self.current_agent_id,
+        )
+
+    def resume_orchestration(self, run_id, owner_id=None):
+        if self.persistent_orchestrator is None:
+            raise RuntimeError("persistent orchestration is not enabled")
+        return self.persistent_orchestrator.resume_run(
+            run_id,
+            owner_id=owner_id,
+            agent_id=self.current_agent_id,
+        )
+
+    def set_orchestration_handler(self, handler):
+        if self.persistent_orchestrator is None:
+            raise RuntimeError("persistent orchestration is not enabled")
+        return self.persistent_orchestrator.set_notification_handler(handler)
 
     def close(self, wait=True):
         with self._lock:
@@ -331,8 +580,19 @@ class AikaService:
         if tool_manager is not None:
             tool_manager.set_confirmation_handler(None)
             tool_manager.set_event_handler(None)
+            tool_manager.set_high_permission_policy(None)
 
-        self.brain.close(wait=wait)
+        if self.reminder_scheduler is not None:
+            self.reminder_scheduler.set_notification_handler(None)
+        if self.persistent_orchestrator is not None:
+            self.persistent_orchestrator.set_notification_handler(None)
+        if self.job_runtime is not None:
+            self.job_runtime.close(wait=wait)
+        if wait:
+            with self._brain_execution_lock:
+                self.brain.close(wait=wait)
+        else:
+            self.brain.close(wait=wait)
         if wait and operation is not None and operation.thread is not None:
             operation.thread.join(timeout=5)
 
