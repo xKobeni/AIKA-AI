@@ -1,5 +1,7 @@
 from tools.app_launcher_tool import AppLauncherTool
 from tools.calculator_tool import CalculatorTool
+from tools.capabilities_tool import CapabilitiesTool
+from tools.date_time_tool import DateTimeTool
 from tools.file_append_tool import FileAppendTool
 from tools.file_delete_tool import FileDeleteTool
 from tools.file_edit_tool import FileEditTool
@@ -20,9 +22,16 @@ from tools.web_crawl_tool import WebCrawlTool
 from tools.web_search_tool import WebSearchTool
 
 
-def register_default_tools(tool_manager, memory_retrieval_service):
+def register_default_tools(
+    tool_manager,
+    memory_retrieval_service,
+    *,
+    agent_registry=None,
+    agent_id_provider=None,
+):
     tools = (
         CalculatorTool(),
+        DateTimeTool(),
         FileSearchTool(),
         FileReadTool(),
         FileWriteTool(),
@@ -45,4 +54,9 @@ def register_default_tools(tool_manager, memory_retrieval_service):
     )
     for tool in tools:
         tool_manager.register_tool(tool)
+    tool_manager.register_tool(CapabilitiesTool(
+        tool_manager,
+        agent_registry=agent_registry,
+        agent_id_provider=agent_id_provider,
+    ))
     return tool_manager

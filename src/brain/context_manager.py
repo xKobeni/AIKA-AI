@@ -270,10 +270,11 @@ class ContextManager:
                 .get_recent(self.recent_count, agent_id=agent_id)
             )
 
-        conversation_context = "\n".join([
+        conversation_context = "\n".join(
             f"{'User' if c.role == 'user' else 'AIKA'}: {c.content}"
             for c in conversations
-        ])
+            if str(getattr(c, "content", "") or "").strip()
+        )
 
         return {
             "memory_context": memory_context,

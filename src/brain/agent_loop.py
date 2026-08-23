@@ -10,11 +10,12 @@ from brain.tool_call_parser import ToolCallParser
 from brain.tool_result_formatter import ToolResultFormatter
 from brain.reflection import ReflectionEngine
 from models.actions import Action
+from models.tool_request import ToolRequest
 
 logger = logging.getLogger(__name__)
 
 
-TERMINAL_TOOLS = {"app_launcher", "system_info"}
+DIRECT_RESPONSE_POLICIES = {"direct_result", "action_confirmation"}
 
 SUCCESS_PHRASES = [
     "here are", "here is", "found", "results for",
@@ -82,8 +83,60 @@ class AgentLoop:
         self.reflection_enabled = settings.agent_reflection_enabled
         self.model = settings.chat_model
         self.last_model_used = None
+        self.last_tool_used = None
+        self.last_tools_used = []
+        self.last_run_status = "idle"
+        self.last_error_type = None
+        self.last_iterations = 0
         self.reflection = ReflectionEngine(llm=self.llm)
         self.native_tool_calling = getattr(settings, 'native_tool_calling', True)
+
+    def _reset_run_observability(self):
+        self.last_model_used = None
+        self.last_tool_used = None
+        self.last_tools_used = []
+        self.last_run_status = "running"
+        self.last_error_type = None
+        self.last_iterations = 0
+
+    def _record_tool_execution(self, tool_name, result):
+        success = bool(
+            result.get("success", False)
+            if isinstance(result, dict)
+            else result
+        )
+        self.last_tool_used = tool_name
+        self.last_tools_used.append({
+            "tool": tool_name,
+            "success": success,
+        })
+        logger.info(
+            "Agent tool execution | tool=%s success=%s",
+            tool_name,
+            success,
+        )
+
+    def _complete_run_observability(self, response):
+        visible_response = bool(str(response or "").strip())
+        if self.last_run_status == "running":
+            self.last_run_status = (
+                "completed" if visible_response else "empty_response"
+            )
+        log = (
+            logger.info
+            if self.last_run_status == "completed"
+            else logger.error
+        )
+        log(
+            "Agent run complete | status=%s model=%s tools=%s "
+            "iterations=%d response_chars=%d error_type=%s",
+            self.last_run_status,
+            self.last_model_used,
+            [entry["tool"] for entry in self.last_tools_used],
+            self.last_iterations,
+            len(str(response or "")),
+            self.last_error_type,
+        )
 
     def _get_agent_profile(self, agent_id):
         if agent_id and self.agent_registry:
@@ -101,32 +154,146 @@ class AgentLoop:
             return True
         return len(text) > 200
 
-    def run(self, user_message, agent_id=None):
+    def run(
+        self,
+        user_message,
+        agent_id=None,
+        request_context=None,
+        initial_tool_request=None,
+    ):
         t0 = time.time()
-        self.last_model_used = None
+        self._reset_run_observability()
 
         if settings.tool_calling_enabled and self.tool_manager and self.llm_tool_router:
-            response = self._run_llm_loop(user_message, agent_id=agent_id)
+            response = self._run_llm_loop(
+                user_message,
+                agent_id=agent_id,
+                request_context=request_context,
+                initial_tool_request=initial_tool_request,
+            )
         else:
             response = self._run_legacy_loop(user_message, agent_id=agent_id)
 
         total = time.time() - t0
         logger.debug("Agent loop total: %.2fs", total)
+        self._complete_run_observability(response)
 
         return response
 
-    def run_stream(self, user_message, agent_id=None) -> Iterator[str]:
-        self.last_model_used = None
-        if settings.tool_calling_enabled and self.tool_manager and self.llm_tool_router:
-            yield from self._run_llm_loop_stream(user_message, agent_id=agent_id)
-        else:
-            yield self._run_legacy_loop(user_message, agent_id=agent_id)
+    def run_stream(
+        self,
+        user_message,
+        agent_id=None,
+        request_context=None,
+        initial_tool_request=None,
+    ) -> Iterator[str]:
+        self._reset_run_observability()
+        response_chunks = []
+        try:
+            if settings.tool_calling_enabled and self.tool_manager and self.llm_tool_router:
+                chunks = self._run_llm_loop_stream(
+                    user_message,
+                    agent_id=agent_id,
+                    request_context=request_context,
+                    initial_tool_request=initial_tool_request,
+                )
+            else:
+                chunks = (self._run_legacy_loop(user_message, agent_id=agent_id),)
+            for chunk in chunks:
+                response_chunks.append(chunk)
+                yield chunk
+        finally:
+            self._complete_run_observability("".join(
+                str(chunk) for chunk in response_chunks if chunk is not None
+            ))
 
     def _get_effective_max_iterations(self, agent_id=None):
         profile = self._get_agent_profile(agent_id)
         if profile:
             return profile.max_iterations
         return self.max_iterations
+
+    def _get_response_policy(self, tool_name):
+        tool = self.tool_manager.get_tool(tool_name) if self.tool_manager else None
+        return getattr(tool, "response_policy", "synthesize")
+
+    def _format_direct_response(self, tool_name, result, formatted):
+        if not isinstance(result, dict):
+            return str(result)
+        if not result.get("success", False):
+            error = str(result.get("error", "The action failed.")).strip()
+            return f"I couldn't complete that action: {error}"
+        if tool_name == "app_launcher":
+            return str(result.get("message") or "The application was opened.")
+        return str(result.get("text") or result.get("message") or formatted)
+
+    def _fallback_response(self, context):
+        if context.actions_taken:
+            last_tool_succeeded = (
+                bool(self.last_tools_used)
+                and self.last_tools_used[-1].get("success") is True
+            )
+            if (
+                not last_tool_succeeded
+                and context.actions_taken[-1].get("failed")
+            ):
+                return (
+                    "I couldn't complete the requested action. "
+                    "Please check the tool result or try again."
+                )
+            return (
+                "I completed the tool action, but I couldn't generate the "
+                "final response. Please try again."
+            )
+        return "I couldn't generate a response just now. Please try again."
+
+    def _execute_tool_request(self, context, request, allowed_tools, agent_id=None):
+        tool_name = request.tool_name
+        parameters = dict(request.parameters or {})
+        context.add_tool_call(tool_name, parameters)
+        result = self.tool_manager.execute_tool(
+            tool_name,
+            allowed_tool_names=allowed_tools,
+            agent_id=agent_id,
+            **parameters,
+        )
+        self._record_tool_execution(tool_name, result)
+        formatted = self.formatter.format_for_context(
+            tool_name, parameters, result
+        )
+        context.add_tool_result(tool_name, formatted)
+        return tool_name, result, formatted
+
+    def _apply_response_policy(self, context, tool_name, result, formatted):
+        policy = self._get_response_policy(tool_name)
+        if policy not in DIRECT_RESPONSE_POLICIES:
+            return False
+        context.add_assistant_response(
+            self._format_direct_response(tool_name, result, formatted)
+        )
+        logger.debug(
+            "Agent loop: %s response policy for %s",
+            policy,
+            tool_name,
+        )
+        return True
+
+    def _synthesize_response(self, context, agent_id=None, request_context=None):
+        response_data = self._call_llm(
+            context,
+            agent_id=agent_id,
+            request_context=request_context,
+            allow_tools=False,
+        )
+        response = ""
+        if response_data is not None:
+            response = str(response_data.get("content", "") or "").strip()
+        if not response:
+            response = self._fallback_response(context)
+            if self.last_run_status == "running":
+                self.last_run_status = "fallback_response"
+        context.add_assistant_response(response)
+        return response
 
     def _get_effective_model(self, agent_id=None):
         profile = self._get_agent_profile(agent_id)
@@ -188,7 +355,13 @@ class AgentLoop:
             ]
         return self.tool_manager.get_native_tool_schemas()
 
-    def _run_llm_loop(self, user_message, agent_id=None):
+    def _run_llm_loop(
+        self,
+        user_message,
+        agent_id=None,
+        request_context=None,
+        initial_tool_request=None,
+    ):
         context = AgentContext(user_message, agent_id=agent_id)
         context.add_user_message(user_message)
         parse_failures = 0
@@ -199,10 +372,26 @@ class AgentLoop:
             tool_names=allowed_tools
         )
 
+        if initial_tool_request is not None:
+            context.iterations += 1
+            self.last_iterations = context.iterations
+            tool_name, result, formatted = self._execute_tool_request(
+                context, initial_tool_request, allowed_tools, agent_id=agent_id
+            )
+            if self._apply_response_policy(
+                context, tool_name, result, formatted
+            ):
+                return context.final_response
+
         for i in range(max_iter):
             context.iterations += 1
+            self.last_iterations = context.iterations
 
-            response_data = self._call_llm(context, agent_id=agent_id)
+            response_data = self._call_llm(
+                context,
+                agent_id=agent_id,
+                request_context=request_context,
+            )
 
             if response_data is None:
                 logger.debug("Agent loop: LLM call failed on iteration %d", i + 1)
@@ -212,8 +401,20 @@ class AgentLoop:
             tool_calls = response_data.get("tool_calls", [])
 
             if not llm_response and not tool_calls:
-                logger.warning("Empty response from native tool calling on iteration %d, falling back to legacy", i + 1)
-                return self._run_legacy_loop(user_message, agent_id=agent_id)
+                logger.warning(
+                    "Empty native response on iteration %d; forcing a visible response",
+                    i + 1,
+                )
+                if context.actions_taken:
+                    return self._synthesize_response(
+                        context,
+                        agent_id=agent_id,
+                        request_context=request_context,
+                    )
+                legacy = self._run_legacy_loop(
+                    user_message, agent_id=agent_id
+                )
+                return legacy or self._fallback_response(context)
 
             delegation = self._check_delegation_intent(llm_response, agent_id)
             if delegation:
@@ -237,7 +438,13 @@ class AgentLoop:
                     context.add_assistant_response(llm_response or f"I tried to use tool '{tool_name}' but it doesn't exist.")
                     break
 
-                context.add_tool_call(tool_name, params)
+                _, result, formatted = self._execute_tool_request(
+                    context,
+                    ToolRequest(tool_name, params),
+                    allowed_tools,
+                    agent_id=agent_id,
+                )
+                self.last_iterations = context.iterations
 
                 if context.is_last_action_repeated_and_failed():
                     logger.debug("Agent loop: repeated failure, stopping")
@@ -247,15 +454,9 @@ class AgentLoop:
                     )
                     break
 
-                result = self.tool_manager.execute_tool(
-                    tool_name, allowed_tool_names=allowed_tools, **params
-                )
-                formatted = self.formatter.format_for_context(tool_name, params, result)
-                context.add_tool_result(tool_name, formatted)
-
-                if tool_name in TERMINAL_TOOLS:
-                    context.add_assistant_response(formatted)
-                    logger.debug("Agent loop: terminal tool %s, stopping", tool_name)
+                if self._apply_response_policy(
+                    context, tool_name, result, formatted
+                ):
                     break
 
                 logger.debug(
@@ -287,7 +488,13 @@ class AgentLoop:
                 break
 
             params = parsed["parameters"]
-            context.add_tool_call(tool_name, params)
+            _, result, formatted = self._execute_tool_request(
+                context,
+                ToolRequest(tool_name, params),
+                allowed_tools,
+                agent_id=agent_id,
+            )
+            self.last_iterations = context.iterations
 
             if context.is_last_action_repeated_and_failed():
                 logger.debug("Agent loop: repeated failure, stopping")
@@ -297,15 +504,9 @@ class AgentLoop:
                 )
                 break
 
-            result = self.tool_manager.execute_tool(
-                tool_name, allowed_tool_names=allowed_tools, **params
-            )
-            formatted = self.formatter.format_for_context(tool_name, params, result)
-            context.add_tool_result(tool_name, formatted)
-
-            if tool_name in TERMINAL_TOOLS:
-                context.add_assistant_response(formatted)
-                logger.debug("Agent loop: terminal tool %s, stopping", tool_name)
+            if self._apply_response_policy(
+                context, tool_name, result, formatted
+            ):
                 break
 
             logger.debug(
@@ -319,9 +520,24 @@ class AgentLoop:
             context.iterations
         )
 
+        if not context.final_response:
+            if context.actions_taken:
+                self._synthesize_response(
+                    context,
+                    agent_id=agent_id,
+                    request_context=request_context,
+                )
+            else:
+                context.add_assistant_response(self._fallback_response(context))
         return context.final_response
 
-    def _run_llm_loop_stream(self, user_message, agent_id=None) -> Iterator[str]:
+    def _run_llm_loop_stream(
+        self,
+        user_message,
+        agent_id=None,
+        request_context=None,
+        initial_tool_request=None,
+    ) -> Iterator[str]:
         context = AgentContext(user_message, agent_id=agent_id)
         context.add_user_message(user_message)
         parse_failures = 0
@@ -332,26 +548,65 @@ class AgentLoop:
             tool_names=allowed_tools
         )
 
+        if initial_tool_request is not None:
+            context.iterations += 1
+            self.last_iterations = context.iterations
+            tool_name, result, formatted = self._execute_tool_request(
+                context, initial_tool_request, allowed_tools, agent_id=agent_id
+            )
+            if self._apply_response_policy(
+                context, tool_name, result, formatted
+            ):
+                yield context.final_response
+                return
+
         for i in range(max_iter):
             context.iterations += 1
+            self.last_iterations = context.iterations
             is_last_iteration = (i == max_iter - 1)
 
             if is_last_iteration:
-                yield from self._call_llm_stream(context, agent_id=agent_id)
-                break
+                yield from self._call_llm_stream(
+                    context,
+                    agent_id=agent_id,
+                    request_context=request_context,
+                    allow_tools=False,
+                )
+                return
 
-            response_data = self._call_llm(context, agent_id=agent_id)
+            response_data = self._call_llm(
+                context,
+                agent_id=agent_id,
+                request_context=request_context,
+            )
 
             if response_data is None:
                 logger.debug("Agent loop: LLM call failed on iteration %d", i + 1)
+                if context.actions_taken:
+                    yield from self._call_llm_stream(
+                        context,
+                        agent_id=agent_id,
+                        request_context=request_context,
+                        allow_tools=False,
+                    )
+                else:
+                    yield self._fallback_response(context)
                 break
 
             llm_response = response_data.get("content", "").strip()
             tool_calls = response_data.get("tool_calls", [])
 
             if not llm_response and not tool_calls:
-                logger.warning("Empty response from native tool calling on iteration %d, falling back to legacy", i + 1)
-                yield self._run_legacy_loop(user_message, agent_id=agent_id)
+                logger.warning(
+                    "Empty native response on iteration %d; forcing final synthesis",
+                    i + 1,
+                )
+                yield from self._call_llm_stream(
+                    context,
+                    agent_id=agent_id,
+                    request_context=request_context,
+                    allow_tools=False,
+                )
                 return
 
             delegation = self._check_delegation_intent(llm_response, agent_id)
@@ -376,7 +631,13 @@ class AgentLoop:
                     context.add_assistant_response(llm_response or f"I tried to use tool '{tool_name}' but it doesn't exist.")
                     break
 
-                context.add_tool_call(tool_name, params)
+                _, result, formatted = self._execute_tool_request(
+                    context,
+                    ToolRequest(tool_name, params),
+                    allowed_tools,
+                    agent_id=agent_id,
+                )
+                self.last_iterations = context.iterations
 
                 if context.is_last_action_repeated_and_failed():
                     logger.debug("Agent loop: repeated failure, stopping")
@@ -386,15 +647,9 @@ class AgentLoop:
                     )
                     break
 
-                result = self.tool_manager.execute_tool(
-                    tool_name, allowed_tool_names=allowed_tools, **params
-                )
-                formatted = self.formatter.format_for_context(tool_name, params, result)
-                context.add_tool_result(tool_name, formatted)
-
-                if tool_name in TERMINAL_TOOLS:
-                    context.add_assistant_response(formatted)
-                    logger.debug("Agent loop: terminal tool %s, stopping", tool_name)
+                if self._apply_response_policy(
+                    context, tool_name, result, formatted
+                ):
                     break
 
                 logger.debug(
@@ -427,7 +682,13 @@ class AgentLoop:
                 break
 
             params = parsed["parameters"]
-            context.add_tool_call(tool_name, params)
+            _, result, formatted = self._execute_tool_request(
+                context,
+                ToolRequest(tool_name, params),
+                allowed_tools,
+                agent_id=agent_id,
+            )
+            self.last_iterations = context.iterations
 
             if context.is_last_action_repeated_and_failed():
                 logger.debug("Agent loop: repeated failure, stopping")
@@ -437,15 +698,9 @@ class AgentLoop:
                 )
                 break
 
-            result = self.tool_manager.execute_tool(
-                tool_name, allowed_tool_names=allowed_tools, **params
-            )
-            formatted = self.formatter.format_for_context(tool_name, params, result)
-            context.add_tool_result(tool_name, formatted)
-
-            if tool_name in TERMINAL_TOOLS:
-                context.add_assistant_response(formatted)
-                logger.debug("Agent loop: terminal tool %s, stopping", tool_name)
+            if self._apply_response_policy(
+                context, tool_name, result, formatted
+            ):
                 break
 
             logger.debug(
@@ -462,19 +717,36 @@ class AgentLoop:
         final = context.final_response
         if final:
             yield final
+        else:
+            yield self._fallback_response(context)
 
-    def _call_llm_stream(self, context, agent_id=None) -> Iterator[str]:
-        native_tools = self._get_native_tools_for_agent(agent_id)
+    def _call_llm_stream(
+        self,
+        context,
+        agent_id=None,
+        request_context=None,
+        allow_tools=True,
+    ) -> Iterator[str]:
+        native_tools = (
+            self._get_native_tools_for_agent(agent_id)
+            if allow_tools
+            else []
+        )
         use_native = bool(native_tools)
 
-        system_prompt = self._build_system_prompt(context, agent_id=agent_id, native=use_native)
+        system_prompt = self._build_system_prompt(
+            context,
+            agent_id=agent_id,
+            native=use_native,
+            request_context=request_context,
+        )
         messages = [{"role": "system", "content": system_prompt}]
 
         for msg in context.messages:
             if msg["role"] == "tool":
                 messages.append({
                     "role": "tool",
-                    "content": f"[Tool Result: {msg.get('tool_name', 'unknown')}]\n{msg['content']}\n[End Result]"
+                    "content": msg["content"],
                 })
             else:
                 messages.append({"role": msg["role"], "content": msg["content"]})
@@ -495,6 +767,7 @@ class AgentLoop:
 
         self.last_model_used = use_model
 
+        yielded_content = False
         try:
             kwargs = {"model": use_model, "messages": messages, "stream": True}
             if use_native:
@@ -507,9 +780,33 @@ class AgentLoop:
             )
             for chunk in chat_call(**kwargs):
                 if "message" in chunk and "content" in chunk["message"]:
-                    yield chunk["message"]["content"]
+                    content = str(chunk["message"]["content"] or "")
+                    if content:
+                        yielded_content = True
+                        yield content
         except Exception as e:
+            self.last_run_status = "llm_error"
+            self.last_error_type = type(e).__name__
             logger.warning("LLM stream call failed: %s", e)
+
+        if not yielded_content:
+            retry = self._call_llm(
+                context,
+                agent_id=agent_id,
+                request_context=request_context,
+                allow_tools=False,
+            )
+            retry_text = (
+                str(retry.get("content", "") or "").strip()
+                if retry is not None
+                else ""
+            )
+            if retry_text:
+                yield retry_text
+            else:
+                if self.last_run_status == "running":
+                    self.last_run_status = "fallback_response"
+                yield self._fallback_response(context)
 
     def _run_legacy_loop(self, user_message, agent_id=None):
         context = AgentContext(user_message, agent_id=agent_id)
@@ -552,18 +849,33 @@ class AgentLoop:
 
         return context.final_response
 
-    def _call_llm(self, context, agent_id=None):
-        native_tools = self._get_native_tools_for_agent(agent_id)
+    def _call_llm(
+        self,
+        context,
+        agent_id=None,
+        request_context=None,
+        allow_tools=True,
+    ):
+        native_tools = (
+            self._get_native_tools_for_agent(agent_id)
+            if allow_tools
+            else []
+        )
         use_native = bool(native_tools)
 
-        system_prompt = self._build_system_prompt(context, agent_id=agent_id, native=use_native)
+        system_prompt = self._build_system_prompt(
+            context,
+            agent_id=agent_id,
+            native=use_native,
+            request_context=request_context,
+        )
         messages = [{"role": "system", "content": system_prompt}]
 
         for msg in context.messages:
             if msg["role"] == "tool":
                 messages.append({
                     "role": "tool",
-                    "content": f"[Tool Result: {msg.get('tool_name', 'unknown')}]\n{msg['content']}\n[End Result]"
+                    "content": msg["content"],
                 })
             else:
                 messages.append({"role": msg["role"], "content": msg["content"]})
@@ -610,6 +922,8 @@ class AgentLoop:
 
             return {"content": content, "tool_calls": tool_calls}
         except Exception as e:
+            self.last_run_status = "llm_error"
+            self.last_error_type = type(e).__name__
             logger.warning("LLM call failed: %s", e)
             return None
 
@@ -625,10 +939,20 @@ class AgentLoop:
                     logger.warning("Failed to load persona for agent %s: %s", agent_id, e)
         return settings.load_persona()
 
-    def _build_system_prompt(self, context, agent_id=None, native=False):
+    def _build_system_prompt(
+        self,
+        context,
+        agent_id=None,
+        native=False,
+        request_context=None,
+    ):
+        persona = (
+            request_context.persona
+            if request_context is not None
+            else self._load_agent_persona(agent_id)
+        )
         if native:
             schemas = ""
-            persona = self._load_agent_persona(agent_id)
             if persona:
                 parts = [
                     persona,
@@ -640,7 +964,6 @@ class AgentLoop:
                 ]
         else:
             schemas = self._get_schemas_for_agent(agent_id)
-            persona = self._load_agent_persona(agent_id)
             if persona:
                 parts = [
                     persona,
@@ -652,6 +975,11 @@ class AgentLoop:
                     SYSTEM_PROMPT,
                     f"\nAvailable tools:\n{schemas}",
                 ]
+
+        if request_context is not None:
+            parts.extend(
+                request_context.prompt_sections(include_persona=False)
+            )
 
         failed_tools = [
             a["tool"] for a in context.actions_taken

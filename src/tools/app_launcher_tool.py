@@ -64,6 +64,7 @@ class AppLauncherTool(BaseTool):
     description = "Opens applications on the host system"
     category = ToolCategory.SYSTEM
     permission = ToolPermission.MEDIUM
+    response_policy = "action_confirmation"
 
     @property
     def name(self):

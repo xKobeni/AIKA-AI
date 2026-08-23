@@ -22,6 +22,8 @@ class ToolResultFormatter:
     def _extract_content(self, tool_name, result):
         extractors = {
             "calculator": lambda r: r.get("result", str(r)),
+            "date_time": lambda r: r.get("text", str(r)),
+            "capabilities": lambda r: r.get("text", str(r)),
             "file_read": lambda r: r.get("content", str(r)),
             "file_read_range": lambda r: r.get("content", str(r)),
             "file_search": lambda r: "\n".join(r.get("file_paths", [])) or "No files found",

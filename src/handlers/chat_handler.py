@@ -1,11 +1,10 @@
-import os
 import time
 import logging
-from datetime import datetime
 from typing import Iterator
 
 from config.settings import settings
 from brain.context_manager import _count_tokens
+from brain.request_context import RequestContextBuilder
 from handlers.response_finalizer import ResponseFinalizer
 
 logger = logging.getLogger(__name__)
@@ -26,6 +25,7 @@ class ChatHandler:
         model_router=None,
         agent_registry=None,
         response_finalizer=None,
+        request_context_builder=None,
     ):
 
         self.conversation_repo = conversation_repo
@@ -38,6 +38,14 @@ class ChatHandler:
         self.session_repo = session_repo
         self.model_router = model_router
         self.agent_registry = agent_registry
+        self.request_context_builder = (
+            request_context_builder
+            or RequestContextBuilder(
+                context_manager,
+                agent_registry=agent_registry,
+                tool_manager=tool_manager,
+            )
+        )
         self.response_finalizer = response_finalizer or ResponseFinalizer(
             conversation_repo,
             embedding_service=embedding_service,
@@ -47,20 +55,28 @@ class ChatHandler:
         self._last_user_conv_id = None
         self.last_response_metadata = None
 
+    @staticmethod
+    def _assemble_prompt_sections(
+        request_context, user_message, web_results_block
+    ):
+        sections = list(request_context.prompt_sections())
+        if web_results_block.strip():
+            sections.append(
+                "=== WEB SEARCH RESULTS (use these to answer accurately) ===\n"
+                + web_results_block
+            )
+        sections.append(
+            "=== INSTRUCTIONS ===\n"
+            "- Respond naturally and warmly.\n"
+            "- Only use facts from the sections above — do not fabricate details.\n"
+            "- If you are unsure, say so honestly rather than guessing.\n"
+            "- Keep your response focused on what the user actually asked."
+        )
+        sections.append(f"User:\n{user_message}")
+        return sections
+
     def refresh_from_settings(self):
         self.log_level = settings.log_level
-
-    def _load_persona_for_agent(self, agent_id=None):
-        if agent_id and self.agent_registry:
-            profile = self.agent_registry.get(agent_id)
-            if profile and profile.persona_path:
-                if os.path.exists(profile.persona_path):
-                    try:
-                        with open(profile.persona_path, "r", encoding="utf-8") as f:
-                            return f.read().strip()
-                    except Exception as e:
-                        logger.warning("Failed to load persona for agent %s: %s", agent_id, e)
-        return settings.load_persona()
 
     def _get_model_for_agent(self, agent_id=None):
         if agent_id and self.agent_registry:
@@ -253,8 +269,21 @@ class ChatHandler:
                 logger.debug("Failed to generate user embedding", exc_info=True)
 
         # -------------------------
-        # Save User Message
+        # Build Context
         # -------------------------
+        t0 = time.time()
+        request_context = self.request_context_builder.build(
+            user_message,
+            session_id=self.session_id,
+            agent_id=agent_id,
+            query_embedding=user_embedding,
+        )
+        t_context = time.time() - t0
+
+        conversation_context = request_context.conversation_context
+
+        # Build context before persisting the current turn so the user message
+        # appears exactly once in the final prompt.
         user_conversation = self.conversation_repo.create(
             role="user",
             content=user_message,
@@ -264,53 +293,7 @@ class ChatHandler:
             tool_used=tool_name,
             agent_id=agent_id
         )
-
         self._last_user_conv_id = user_conversation.id
-
-        # -------------------------
-        # Build Context
-        # -------------------------
-        t0 = time.time()
-        context = (
-            self.context_manager
-            .build_context(
-                user_message,
-                session_id=self.session_id,
-                agent_id=agent_id,
-                query_embedding=user_embedding,
-            )
-        )
-        t_context = time.time() - t0
-
-        memory_context = (
-            context["memory_context"]
-        )
-
-        conversation_context = (
-            context["conversation_context"]
-        )
-
-        cross_session_context = context.get(
-            "cross_session_context", ""
-        )
-
-        if conversation_context.strip():
-            conversation_block = (
-                f"Recent Conversation:\n"
-                f"{conversation_context}"
-            )
-        else:
-            conversation_block = (
-                "(No recent conversation history)"
-            )
-
-        if cross_session_context.strip():
-            cross_session_block = (
-                f"Relevant Past Discussions:\n"
-                f"{cross_session_context}"
-            )
-        else:
-            cross_session_block = ""
 
         # -------------------------
         # Reflexive Web Search
@@ -362,52 +345,9 @@ class ChatHandler:
 
         t_web = time.time() - t0
 
-        # -------------------------
-        # Build Prompt
-        # -------------------------
-        now = datetime.now()
-        time_str = now.strftime("%H:%M")
-        date_str = now.strftime("%A, %B %d, %Y")
-
-        persona = self._load_persona_for_agent(agent_id)
-
-        # ---- Assemble prompt sections ----
-        sections = [persona]
-
-        sections.append(
-            f"Current time: {time_str}\nCurrent date: {date_str}"
+        sections = self._assemble_prompt_sections(
+            request_context, user_message, web_results_block
         )
-
-        if memory_context.strip():
-            sections.append(
-                f"=== WHAT YOU KNOW ABOUT THE USER ===\n{memory_context}"
-            )
-
-        if conversation_block.strip() and conversation_block != "(No recent conversation history)":
-            sections.append(
-                f"=== RECENT CONVERSATION ===\n{conversation_block}"
-            )
-
-        if cross_session_block.strip():
-            sections.append(
-                f"=== RELEVANT PAST DISCUSSIONS ===\n{cross_session_block}"
-            )
-
-        if web_results_block.strip():
-            sections.append(
-                f"=== WEB SEARCH RESULTS (use these to answer accurately) ===\n{web_results_block}"
-            )
-
-        sections.append(
-            "=== INSTRUCTIONS ===\n"
-            "- Respond naturally and warmly.\n"
-            "- Only use facts from the sections above — do not fabricate details.\n"
-            "- If you are unsure, say so honestly rather than guessing.\n"
-            "- Keep your response focused on what the user actually asked."
-        )
-
-        sections.append(f"User:\n{user_message}")
-
         prompt = self._budget_prompt(sections)
 
         # -------------------------
@@ -492,6 +432,17 @@ class ChatHandler:
             except Exception:
                 logger.debug("Failed to generate user embedding", exc_info=True)
 
+        t0 = time.time()
+        request_context = self.request_context_builder.build(
+            user_message,
+            session_id=self.session_id,
+            agent_id=agent_id,
+            query_embedding=user_embedding,
+        )
+        t_context = time.time() - t0
+
+        conversation_context = request_context.conversation_context
+
         user_conversation = self.conversation_repo.create(
             role="user",
             content=user_message,
@@ -501,38 +452,7 @@ class ChatHandler:
             tool_used=tool_name,
             agent_id=agent_id
         )
-
         self._last_user_conv_id = user_conversation.id
-
-        t0 = time.time()
-        context = (
-            self.context_manager
-            .build_context(
-                user_message,
-                session_id=self.session_id,
-                agent_id=agent_id,
-                query_embedding=user_embedding,
-            )
-        )
-        t_context = time.time() - t0
-
-        memory_context = context["memory_context"]
-        conversation_context = context["conversation_context"]
-        cross_session_context = context.get("cross_session_context", "")
-
-        if conversation_context.strip():
-            conversation_block = (
-                f"Recent Conversation:\n{conversation_context}"
-            )
-        else:
-            conversation_block = "(No recent conversation history)"
-
-        if cross_session_context.strip():
-            cross_session_block = (
-                f"Relevant Past Discussions:\n{cross_session_context}"
-            )
-        else:
-            cross_session_block = ""
 
         web_results_block = ""
         n_results = 0
@@ -573,49 +493,9 @@ class ChatHandler:
 
         t_web = time.time() - t0
 
-        now = datetime.now()
-        time_str = now.strftime("%H:%M")
-        date_str = now.strftime("%A, %B %d, %Y")
-
-        persona = self._load_persona_for_agent(agent_id)
-
-        # ---- Assemble prompt sections ----
-        sections = [persona]
-
-        sections.append(
-            f"Current time: {time_str}\nCurrent date: {date_str}"
+        sections = self._assemble_prompt_sections(
+            request_context, user_message, web_results_block
         )
-
-        if memory_context.strip():
-            sections.append(
-                f"=== WHAT YOU KNOW ABOUT THE USER ===\n{memory_context}"
-            )
-
-        if conversation_block.strip() and conversation_block != "(No recent conversation history)":
-            sections.append(
-                f"=== RECENT CONVERSATION ===\n{conversation_block}"
-            )
-
-        if cross_session_block.strip():
-            sections.append(
-                f"=== RELEVANT PAST DISCUSSIONS ===\n{cross_session_block}"
-            )
-
-        if web_results_block.strip():
-            sections.append(
-                f"=== WEB SEARCH RESULTS (use these to answer accurately) ===\n{web_results_block}"
-            )
-
-        sections.append(
-            "=== INSTRUCTIONS ===\n"
-            "- Respond naturally and warmly.\n"
-            "- Only use facts from the sections above — do not fabricate details.\n"
-            "- If you are unsure, say so honestly rather than guessing.\n"
-            "- Keep your response focused on what the user actually asked."
-        )
-
-        sections.append(f"User:\n{user_message}")
-
         prompt = self._budget_prompt(sections)
 
         t0 = time.time()

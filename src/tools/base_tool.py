@@ -8,6 +8,7 @@ class BaseTool(ABC):
     description = ""
     category = None
     permission = ToolPermission.LOW
+    response_policy = "synthesize"
 
     @property
     @abstractmethod

@@ -25,6 +25,8 @@ from handlers.config_handler import ConfigHandler
 from handlers.response_finalizer import ResponseFinalizer
 
 from brain.context_manager import ContextManager
+from brain.request_context import RequestContextBuilder
+from brain.tool_intent_resolver import DeterministicToolIntentResolver
 from brain.router import Router
 from brain.agent_loop import AgentLoop
 from brain.model_router import ModelRouter
@@ -103,6 +105,16 @@ class AikaBrain:
         register_default_tools(
             self.tool_manager,
             self.memory_retrieval_service,
+            agent_registry=self.agent_registry,
+            agent_id_provider=lambda: self.current_agent_id,
+        )
+
+        self.tool_intent_resolver = DeterministicToolIntentResolver()
+
+        self.request_context_builder = RequestContextBuilder(
+            self.context_manager,
+            agent_registry=self.agent_registry,
+            tool_manager=self.tool_manager,
         )
 
         self.tool_response_handler = ToolResponseHandler(
@@ -164,6 +176,7 @@ class AikaBrain:
             model_router=self.model_router,
             agent_registry=self.agent_registry,
             response_finalizer=self.response_finalizer,
+            request_context_builder=self.request_context_builder,
         )
 
         # Config Handler
@@ -297,8 +310,31 @@ class AikaBrain:
         )
         self._schedule_memory_extraction(user_message, conversation_id)
 
+    def _build_request_context(self, user_message, user_embedding):
+        builder = getattr(self, "request_context_builder", None)
+        if builder is None:
+            return None
+        return builder.build(
+            user_message,
+            session_id=self.current_session.id,
+            agent_id=self.current_agent_id,
+            query_embedding=user_embedding,
+        )
+
+    def _resolve_initial_tool_request(self, user_message):
+        resolver = getattr(self, "tool_intent_resolver", None)
+        if resolver is None:
+            return None
+        return resolver.resolve(user_message)
+
     def _finalize_agent_response(
-        self, response, user_conversation, model_used, elapsed_seconds=None
+        self,
+        response,
+        user_conversation,
+        model_used,
+        elapsed_seconds=None,
+        intent=None,
+        tool_used=None,
     ):
         finalizer = getattr(self, "response_finalizer", None)
         if finalizer is None:
@@ -322,16 +358,20 @@ class AikaBrain:
         if response_time_ms is None and elapsed_seconds is not None:
             response_time_ms = int(elapsed_seconds * 1000)
 
-        return finalizer.finalize(
-            response,
-            user_conversation_id=user_conversation.id,
-            session_id=self.current_session.id,
-            agent_id=self.current_agent_id,
-            model_used=model_used,
-            response_time_ms=response_time_ms,
-            prompt_tokens=metrics.get("prompt_tokens"),
-            response_tokens=response_tokens,
-        )
+        finalize_kwargs = {
+            "user_conversation_id": user_conversation.id,
+            "session_id": self.current_session.id,
+            "agent_id": self.current_agent_id,
+            "model_used": model_used,
+            "response_time_ms": response_time_ms,
+            "prompt_tokens": metrics.get("prompt_tokens"),
+            "response_tokens": response_tokens,
+        }
+        if intent is not None:
+            finalize_kwargs["intent"] = intent
+        if tool_used is not None:
+            finalize_kwargs["tool_used"] = tool_used
+        return finalizer.finalize(response, **finalize_kwargs)
 
     def _generate_session_summary(self, session_id):
         conversations = self.conversation_repo.get_by_session(
@@ -687,7 +727,18 @@ class AikaBrain:
             logger.debug("Route: AGENTS_STATUS (%.2fs)", time.time() - t0)
             return response
 
-        decision = self.decision_engine.decide(user_message)
+        initial_tool_request = self._resolve_initial_tool_request(user_message)
+        decision = (
+            Action.USE_TOOL
+            if initial_tool_request is not None
+            else self.decision_engine.decide(user_message)
+        )
+        logger.info(
+            "Request route | route=%s agent=%s session=%s",
+            decision.value,
+            self.current_agent_id,
+            getattr(getattr(self, "current_session", None), "id", None),
+        )
         source_conversation_id = None
         response_metadata = None
 
@@ -724,11 +775,16 @@ class AikaBrain:
             except Exception as e:
                 logger.warning("Failed to generate user embedding: %s", e)
 
+            request_context = self._build_request_context(
+                user_message, user_embedding
+            )
+
             user_conv = self.conversation_repo.create(
                 role="user",
                 content=user_message,
                 session_id=self.current_session.id,
                 embedding=user_embedding,
+                intent=decision.value,
                 agent_id=self.current_agent_id,
             )
             source_conversation_id = user_conv.id
@@ -736,7 +792,9 @@ class AikaBrain:
             agent_started = time.time()
             response = self.agent_loop.run(
                 user_message,
-                agent_id=self.current_agent_id
+                agent_id=self.current_agent_id,
+                request_context=request_context,
+                initial_tool_request=initial_tool_request,
             )
             agent_elapsed = time.time() - agent_started
 
@@ -745,7 +803,10 @@ class AikaBrain:
                 user_conv,
                 self.agent_loop.last_model_used,
                 elapsed_seconds=agent_elapsed,
+                intent=decision.value,
+                tool_used=self.agent_loop.last_tool_used,
             )
+            self._log_agent_run(decision, response)
 
             logger.debug("Route: AGENT_LOOP (%.2fs)", time.time() - t0)
 
@@ -824,7 +885,18 @@ class AikaBrain:
             yield self._handle_agents_status()
             return
 
-        decision = self.decision_engine.decide(user_message)
+        initial_tool_request = self._resolve_initial_tool_request(user_message)
+        decision = (
+            Action.USE_TOOL
+            if initial_tool_request is not None
+            else self.decision_engine.decide(user_message)
+        )
+        logger.info(
+            "Request route | route=%s agent=%s session=%s",
+            decision.value,
+            self.current_agent_id,
+            getattr(getattr(self, "current_session", None), "id", None),
+        )
 
         if decision == Action.NEW_SESSION:
             yield self._handle_new_session()
@@ -868,11 +940,16 @@ class AikaBrain:
         except Exception as e:
             logger.warning("Failed to generate user embedding: %s", e)
 
+        request_context = self._build_request_context(
+            user_message, user_embedding
+        )
+
         user_conv = self.conversation_repo.create(
             role="user",
             content=user_message,
             session_id=self.current_session.id,
             embedding=user_embedding,
+            intent=decision.value,
             agent_id=self.current_agent_id,
         )
 
@@ -880,7 +957,9 @@ class AikaBrain:
         agent_started = time.time()
         for chunk in self.agent_loop.run_stream(
             user_message,
-            agent_id=self.current_agent_id
+            agent_id=self.current_agent_id,
+            request_context=request_context,
+            initial_tool_request=initial_tool_request,
         ):
             response_chunks.append(chunk)
             yield chunk
@@ -893,7 +972,10 @@ class AikaBrain:
             user_conv,
             self.agent_loop.last_model_used,
             elapsed_seconds=agent_elapsed,
+            intent=decision.value,
+            tool_used=self.agent_loop.last_tool_used,
         )
+        self._log_agent_run(decision, response)
 
         logger.debug("Route: AGENT_LOOP (%.2fs)", time.time() - t0)
 
@@ -904,4 +986,29 @@ class AikaBrain:
         self._complete_response(
             user_message,
             metadata=response_metadata,
+        )
+
+    def _log_agent_run(self, decision, response):
+        status = getattr(self.agent_loop, "last_run_status", "unknown")
+        tool_entries = getattr(self.agent_loop, "last_tools_used", [])
+        if not isinstance(tool_entries, (list, tuple)):
+            tool_entries = []
+        log = logger.info if status == "completed" else logger.error
+        log(
+            "Agent request outcome | route=%s status=%s agent=%s "
+            "session=%s model=%s tools=%s iterations=%s response_chars=%d "
+            "error_type=%s",
+            decision.value,
+            status,
+            self.current_agent_id,
+            self.current_session.id,
+            self.agent_loop.last_model_used,
+            [
+                entry.get("tool")
+                for entry in tool_entries
+                if isinstance(entry, dict)
+            ],
+            getattr(self.agent_loop, "last_iterations", None),
+            len(response),
+            getattr(self.agent_loop, "last_error_type", None),
         )
