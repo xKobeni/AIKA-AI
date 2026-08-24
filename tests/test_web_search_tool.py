@@ -67,7 +67,12 @@ result = tool.execute("test query")
 
 check("returns a dict on error", isinstance(result, dict))
 check("success is False on error", result.get("success") is False)
-check("has error message", "error" in result)
+check("provider error outcome is distinct", result.get("outcome") == "provider_error")
+check(
+    "provider error is sanitized",
+    result.get("error") == "The web-search provider is currently unavailable."
+)
+check("backend detail is not exposed", "Search API unavailable" not in str(result))
 
 # Test 3: No results
 print("\n[Test 3: No results]")
@@ -83,8 +88,13 @@ tool = WebSearchTool(provider=EmptyProvider())
 result = tool.execute("nonexistent query")
 
 check("returns dict when no results", isinstance(result, dict))
-check("success is False when no results", result.get("success") is False)
+check("success is True when no results", result.get("success") is True)
+check("no-results outcome is distinct", result.get("outcome") == "no_results")
 check("results is empty list", result.get("results") == [])
+check(
+    "no-results message is explicit",
+    result.get("message") == "No matching results were found."
+)
 
 # Test 4: Tool metadata
 print("\n[Test 4: Tool metadata]")

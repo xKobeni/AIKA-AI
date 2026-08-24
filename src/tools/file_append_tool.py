@@ -13,7 +13,7 @@ class FileAppendTool(BaseTool):
 
     description = "Appends content to the end of a file"
     category = ToolCategory.FILE
-    permission = ToolPermission.MEDIUM
+    permission = ToolPermission.HIGH
 
     def __init__(self):
         self.encoding = settings.file_read_encoding

@@ -267,6 +267,8 @@ def test_brain_passes_shared_context_to_streaming_agent_loop():
         request_context=request_context,
         initial_tool_request=None,
     )
+    assert brain.last_stream_status == "completed"
+    assert brain.last_stream_error_type is None
 
 
 def test_date_time_tool_uses_an_aware_host_clock():
@@ -302,6 +304,104 @@ def test_deterministic_system_request_resolution_is_conservative():
     assert resolver.resolve("What tools can you use?").tool_name == "capabilities"
     assert resolver.resolve("What tools you can do?").tool_name == "capabilities"
     assert resolver.resolve("Recommend a movie for date night") is None
+
+
+def test_deterministic_tool_intents_cover_reported_calculator_and_terminal_requests():
+    from brain.tool_intent_resolver import DeterministicToolIntentResolver
+
+    resolver = DeterministicToolIntentResolver()
+
+    calculation = resolver.resolve("2+2")
+    assert calculation.tool_name == "calculator"
+    assert calculation.parameters == {"expression": "2+2"}
+
+    terminal = resolver.resolve("open terminal")
+    assert terminal.tool_name == "app_launcher"
+    assert terminal.parameters == {"app_name": "terminal"}
+
+    assert resolver.resolve("open up about your day") is None
+
+
+def test_deterministic_tool_intents_cover_reported_memory_and_web_searches():
+    from brain.tool_intent_resolver import DeterministicToolIntentResolver
+
+    resolver = DeterministicToolIntentResolver()
+
+    memory = resolver.resolve("can you search the memories")
+    assert memory.tool_name == "memory_search"
+    assert memory.parameters["query"] == "can you search the memories"
+
+    web = resolver.resolve(
+        "can you serach the internet for the top 5 best movie this 2026"
+    )
+    assert web.tool_name == "web_search"
+    assert web.parameters == {
+        "query": "the top 5 best movie this 2026"
+    }
+
+    suffix_web = resolver.resolve(
+        "search 5 best movies this 2026 in the web"
+    )
+    assert suffix_web.tool_name == "web_search"
+    assert suffix_web.parameters == {
+        "query": "5 best movies this 2026"
+    }
+
+
+def test_deterministic_tool_intents_cover_reported_desktop_requests():
+    from brain.tool_intent_resolver import DeterministicToolIntentResolver
+
+    resolver = DeterministicToolIntentResolver()
+
+    folder = resolver.resolve(
+        "can you search my destop and open the portfolio folder"
+    )
+    assert folder.tool_name == "folder"
+    assert folder.parameters == {
+        "path": "desktop",
+        "find": "portfolio",
+        "open_match": True,
+    }
+
+    blank_file = resolver.resolve(
+        "in the desktop can you create a blank txt file"
+    )
+    assert blank_file.tool_name == "file_write"
+    assert blank_file.parameters == {
+        "file_path": "desktop://blank.txt",
+        "content": "",
+        "fail_if_exists": True,
+    }
+
+    opened_file = resolver.resolve(
+        "open the created blank txt in the desktop"
+    )
+    assert opened_file.tool_name == "app_launcher"
+    assert opened_file.parameters == {
+        "app_name": "file",
+        "path": "desktop://blank.txt",
+    }
+
+    assert resolver.resolve(
+        "open ../secret txt in the desktop"
+    ) is None
+
+
+def test_calculator_policy_returns_exact_result_without_another_llm_call():
+    from models.tool_request import ToolRequest
+    from tools.calculator_tool import CalculatorTool
+
+    loop, llm = _loop_with_registered_tool(CalculatorTool())
+
+    response = loop.run(
+        "2+2",
+        initial_tool_request=ToolRequest("calculator", {"expression": "2+2"}),
+    )
+
+    assert response == "The answer is 4."
+    assert loop.last_iterations == 1
+    assert loop.last_run_status == "completed"
+    llm.chat.assert_not_called()
 
 
 def test_capabilities_report_registered_tools_for_current_agent_only():
@@ -432,7 +532,7 @@ def test_system_info_policy_requires_llm_synthesis():
     llm.chat.assert_called_once()
 
 
-def test_final_stream_synthesis_disables_tools_and_returns_visible_answer():
+def test_web_search_synthesizes_grounded_answer_once_without_tools():
     from models.tool_request import ToolRequest
     from tools.web_search_tool import WebSearchTool
 
@@ -446,28 +546,142 @@ def test_final_stream_synthesis_disables_tools_and_returns_visible_answer():
         }],
     })
     loop, llm = _loop_with_registered_tool(tool)
-    llm.chat.return_value = iter([
-        {"message": {"content": "Here is the first 2026 movie result."}}
-    ])
-
+    llm.chat.return_value = iter([{
+        "message": {
+            "content": "Movie One stands out based on the returned review."
+        }
+    }])
     chunks = list(loop.run_stream(
-        "Search for 2026 movies",
+        "search 5 best movies this 2026 in the web",
         initial_tool_request=ToolRequest(
             "web_search", {"query": "best movies 2026"}
         ),
     ))
 
-    assert "".join(chunks) == "Here is the first 2026 movie result."
+    response = "".join(chunks)
+    assert "stands out" in response
+    assert "https://example.com/movie-one" in response
+    assert "[Tool Result:" not in response
+    assert WebSearchTool.response_policy == "synthesize"
+    llm.chat.assert_called_once()
+    assert "tools" not in llm.chat.call_args.kwargs
+    messages = llm.chat.call_args.kwargs["messages"]
+    assert any(
+        message.get("role") == "tool"
+        and "Movie One" in message.get("content", "")
+        and "https://example.com/movie-one" in message.get("content", "")
+        for message in messages
+    )
+    assert "WEB SEARCH GROUNDING RULES" in messages[0]["content"]
+    assert tool.execute.call_count == 1
+
+
+def test_empty_web_synthesis_returns_linked_grounded_fallback_once():
+    from models.tool_request import ToolRequest
+    from tools.web_search_tool import WebSearchTool
+
+    tool = WebSearchTool()
+    tool.execute = Mock(return_value={
+        "success": True,
+        "results": [{
+            "title": "Movie One",
+            "href": "https://example.com/movie-one",
+            "body": "A well-reviewed 2026 release.",
+        }],
+    })
+    loop, llm = _loop_with_registered_tool(tool)
+    llm.chat.return_value = iter([{"message": {"content": ""}}])
+
+    response = "".join(loop.run_stream(
+        "search 5 best movies this 2026 in the web",
+        initial_tool_request=ToolRequest(
+            "web_search", {"query": "5 best movies this 2026"}
+        ),
+    ))
+
+    assert "Here are the web search results" in response
+    assert "Movie One" in response
+    assert "A well-reviewed 2026 release." in response
+    assert "https://example.com/movie-one" in response
+    assert loop.last_run_status == "fallback_response"
+    assert llm.chat.call_count == 1
+    assert "tools" not in llm.chat.call_args.kwargs
+    assert tool.execute.call_count == 1
+
+
+def test_failed_web_synthesis_returns_linked_fallback_without_retry():
+    from models.tool_request import ToolRequest
+    from tools.web_search_tool import WebSearchTool
+
+    tool = WebSearchTool()
+    tool.execute = Mock(return_value={
+        "success": True,
+        "results": [{
+            "title": "Movie One",
+            "href": "https://example.com/movie-one",
+            "body": "A well-reviewed 2026 release.",
+        }],
+    })
+    loop, llm = _loop_with_registered_tool(tool)
+    llm.chat.side_effect = RuntimeError("private model detail")
+
+    response = "".join(loop.run_stream(
+        "search 5 best movies this 2026 in the web",
+        initial_tool_request=ToolRequest(
+            "web_search", {"query": "5 best movies this 2026"}
+        ),
+    ))
+
+    assert "Movie One" in response
+    assert "https://example.com/movie-one" in response
+    assert "private model detail" not in response
+    assert loop.last_run_status == "fallback_response"
+    assert loop.last_error_type == "RuntimeError"
+    assert llm.chat.call_count == 1
+    assert tool.execute.call_count == 1
+
+
+def test_sync_web_search_synthesizes_once_and_preserves_sources():
+    from models.tool_request import ToolRequest
+    from tools.web_search_tool import WebSearchTool
+
+    tool = WebSearchTool()
+    tool.execute = Mock(return_value={
+        "success": True,
+        "results": [{
+            "title": "Movie One",
+            "href": "https://example.com/movie-one",
+            "body": "A well-reviewed 2026 release.",
+        }],
+    })
+    loop, llm = _loop_with_registered_tool(tool)
+    llm.chat.return_value = {
+        "message": {
+            "content": "Movie One is supported by the returned result.",
+            "tool_calls": [],
+        }
+    }
+
+    response = loop.run(
+        "search 5 best movies this 2026 in the web",
+        initial_tool_request=ToolRequest(
+            "web_search", {"query": "5 best movies this 2026"}
+        ),
+    )
+
+    assert "supported by the returned result" in response
+    assert "https://example.com/movie-one" in response
+    assert llm.chat.call_count == 1
     assert "tools" not in llm.chat.call_args.kwargs
     assert tool.execute.call_count == 1
 
 
 def test_empty_final_stream_retries_once_then_returns_visible_fallback():
     from models.tool_request import ToolRequest
-    from tools.web_search_tool import WebSearchTool
+    from tools.system_info_tool import SystemInfoTool
 
-    tool = WebSearchTool()
-    tool.execute = Mock(return_value={"success": True, "results": []})
+    tool = SystemInfoTool()
+    tool.execute = Mock(return_value={"success": True, "text": "OS data"})
     loop, llm = _loop_with_registered_tool(tool)
     llm.chat.side_effect = [
         iter([{"message": {"content": "", "tool_calls": []}}]),
@@ -475,9 +689,9 @@ def test_empty_final_stream_retries_once_then_returns_visible_fallback():
     ]
 
     response = "".join(loop.run_stream(
-        "Search for a movie",
+        "Inspect this system",
         initial_tool_request=ToolRequest(
-            "web_search", {"query": "movie"}
+            "system_info", {}
         ),
     ))
 
@@ -491,17 +705,17 @@ def test_empty_final_stream_retries_once_then_returns_visible_fallback():
 
 def test_stream_exception_returns_visible_fallback():
     from models.tool_request import ToolRequest
-    from tools.web_search_tool import WebSearchTool
+    from tools.system_info_tool import SystemInfoTool
 
-    tool = WebSearchTool()
-    tool.execute = Mock(return_value={"success": True, "results": []})
+    tool = SystemInfoTool()
+    tool.execute = Mock(return_value={"success": True, "text": "OS data"})
     loop, llm = _loop_with_registered_tool(tool)
     llm.chat.side_effect = RuntimeError("local model unavailable")
 
     response = "".join(loop.run_stream(
-        "Search for a movie",
+        "Inspect this system",
         initial_tool_request=ToolRequest(
-            "web_search", {"query": "movie"}
+            "system_info", {}
         ),
     ))
 
@@ -509,3 +723,109 @@ def test_stream_exception_returns_visible_fallback():
     assert "completed the tool action" in response
     assert loop.last_run_status == "llm_error"
     assert loop.last_error_type == "RuntimeError"
+
+
+def test_partial_stream_exception_remains_failed_and_is_not_retried():
+    from handlers.response_finalizer import STREAM_INTERRUPTION_FALLBACK
+    from models.tool_request import ToolRequest
+    from tools.system_info_tool import SystemInfoTool
+
+    tool = SystemInfoTool()
+    tool.execute = Mock(return_value={"success": True, "text": "OS data"})
+    loop, llm = _loop_with_registered_tool(tool)
+
+    def interrupted_stream():
+        yield {"message": {"content": "Partial system answer."}}
+        raise RuntimeError("private backend detail")
+
+    llm.chat.return_value = interrupted_stream()
+
+    response = "".join(loop.run_stream(
+        "Inspect this system",
+        initial_tool_request=ToolRequest("system_info", {}),
+    ))
+
+    assert response == (
+        "Partial system answer.\n\n" + STREAM_INTERRUPTION_FALLBACK
+    )
+    assert "private backend detail" not in response
+    assert loop.last_run_status == "llm_error"
+    assert loop.last_error_type == "RuntimeError"
+    assert llm.chat.call_count == 1
+
+
+def test_recovered_tool_synthesis_does_not_append_a_second_fallback():
+    from models.tool_request import ToolRequest
+    from tools.system_info_tool import SystemInfoTool
+
+    tool = SystemInfoTool()
+    tool.execute = Mock(return_value={"success": True, "text": "OS data"})
+    loop, llm = _loop_with_registered_tool(tool, max_iterations=3)
+    llm.chat.side_effect = [
+        RuntimeError("first synthesis failed"),
+        iter([{"message": {"content": "The recovered answer."}}]),
+    ]
+
+    response = "".join(loop.run_stream(
+        "Inspect this system",
+        initial_tool_request=ToolRequest("system_info", {}),
+    ))
+
+    assert response == "The recovered answer."
+    assert "couldn't generate the final response" not in response
+    assert loop.last_run_status == "completed"
+    assert loop.last_error_type is None
+
+
+def test_memory_search_returns_only_grounded_memories_without_llm_synthesis():
+    from models.tool_request import ToolRequest
+    from tools.memory_search_tool import MemorySearchTool
+
+    tool = MemorySearchTool(Mock())
+    tool.execute = Mock(return_value={
+        "success": True,
+        "memories": ["I am building AIKA AI", "I live in the Philippines"],
+    })
+    loop, llm = _loop_with_registered_tool(tool)
+    response = loop.run(
+        "can you search the memories",
+        initial_tool_request=ToolRequest(
+            "memory_search", {"query": "relevant memories"}
+        ),
+    )
+
+    assert "I am building AIKA AI" in response
+    assert "I live in the Philippines" in response
+    assert "[Tool Result:" not in response
+    llm.chat.assert_not_called()
+
+
+def test_file_write_confirmation_policy_returns_real_path_without_llm():
+    from models.tool_request import ToolRequest
+    from tools.file_write_tool import FileWriteTool
+
+    tool = FileWriteTool()
+    tool.execute = Mock(return_value={
+        "success": True,
+        "file_path": r"C:\Users\Adrian\Desktop\blank.txt",
+        "bytes_written": 0,
+    })
+    loop, llm = _loop_with_registered_tool(tool)
+    loop.tool_manager.set_confirmation_handler(
+        lambda _tool_name, _parameters: True
+    )
+
+    response = loop.run(
+        "in the desktop can you create a blank txt file",
+        initial_tool_request=ToolRequest(
+            "file_write",
+            {
+                "file_path": "desktop://blank.txt",
+                "content": "",
+                "fail_if_exists": True,
+            },
+        ),
+    )
+
+    assert response == r"Created C:\Users\Adrian\Desktop\blank.txt."
+    llm.chat.assert_not_called()

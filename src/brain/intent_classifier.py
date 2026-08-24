@@ -15,9 +15,8 @@ class LLMIntentClassifier:
         "You are an intent classifier. "
         "Read the user's message and classify their intent. "
         "Reply with ONLY one word from this list:\n\n"
-        "WEB_SEARCH - Asking for factual information, "
-        "current events, definitions, news, lookups, "
-        "or anything requiring internet search\n"
+        "WEB_SEARCH - Explicit web lookups, current events, news, latest "
+        "information, or anything requiring internet search\n"
         "FILE_SEARCH - Asking to read, find, or inspect "
         "files, code, or source files in the project\n"
         "FILE_WRITE - Asking to create, write, save, "
@@ -28,8 +27,8 @@ class LLMIntentClassifier:
         "PLAN_EXECUTION - Wants research, analysis, "
         "summarization, investigation, "
         "or multi-step work\n"
-        "CHAT - General conversation, greeting, "
-        "opinion, casual talk, or unsure"
+        "CHAT - General conversation, stable definitions or conceptual "
+        "comparisons, greeting, opinion, casual talk, or unsure"
     )
 
     def __init__(self, llm=None):
@@ -73,9 +72,11 @@ class LLMIntentClassifier:
                 .strip().upper()
             )
 
-        except Exception as e:
+        except Exception as exc:
             logger.warning(
-                "IntentClassifier: LLM call failed (%s), falling back to CHAT", e
+                "Intent classifier failed; falling back to CHAT | "
+                "error_type=%s",
+                type(exc).__name__,
             )
             return default_result
 

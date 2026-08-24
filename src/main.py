@@ -106,10 +106,11 @@ def main():
                             answer in ("y", "yes"),
                         )
                     elif event.type == AikaEventType.ERROR:
-                        print(
-                            f"\n[Error] {event.data.get('error', 'Operation failed')}",
-                            end="",
-                        )
+                        if not event.data.get("already_reported", False):
+                            print(
+                                f"\n[Error] {event.data.get('error', 'Operation failed')}",
+                                end="",
+                            )
                     elif event.type == AikaEventType.CANCELLED:
                         print("\n[Interrupted]", end="")
                 print()

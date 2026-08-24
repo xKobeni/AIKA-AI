@@ -623,6 +623,7 @@ Quick detection also handles obvious greetings and simple questions without call
 | `FAST_MODEL` | `qwen2.5:3b` | Fast model for simple tasks |
 | `SMART_MODEL` | `llama3:8b` | Smart model for complex tasks |
 | `EMBEDDING_MODEL` | `nomic-embed-text` | Ollama model for embeddings |
+| `EMBEDDING_DIMENSION` | `768` | Startup-only vector size; must match the PostgreSQL schema |
 | `OLLAMA_HOST` | `http://localhost:11434` | Ollama server URL |
 | `LLM_TIMEOUT` | `30` | LLM request timeout (seconds) |
 | `TOOL_CALLING_ENABLED` | `true` | Enable LLM-driven tool calling |
@@ -707,7 +708,7 @@ reschedule reminder <reminder_id> 2026-08-25T10:00:00+08:00
 
 | Variable | Default | Description |
 |---|---|---|
-| `MAX_CONTEXT_TOKENS` | `6000` | Approximate maximum for the complete assembled chat prompt |
+| `MAX_CONTEXT_TOKENS` | `6000` | Conservative limit for each complete Ollama request, including messages and tool schemas |
 | `MAX_PROFILE_PER_CATEGORY` | `2` | Max profile entries per category |
 | `RECENT_CONVERSATIONS_COUNT` | `10` | Recent turns included in context |
 | `MODEL_ROUTER_LONG_MESSAGE_WORDS` | `20` | Smart-model long-message threshold |

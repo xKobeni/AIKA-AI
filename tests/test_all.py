@@ -288,6 +288,7 @@ def setup_mocks():
     mock_settings.fast_model = "qwen2.5:3b"
     mock_settings.smart_model = "llama3:8b"
     mock_settings.embedding_model = "nomic-embed-text"
+    mock_settings.embedding_dimension = 768
     mock_settings.ollama_host = "http://localhost:11434"
     mock_settings.llm_timeout = 30
     # Memory
@@ -434,7 +435,7 @@ def test_settings_all_attributes_exist():
     s = Settings()
     required = [
         "database_url", "chat_model", "fast_model", "smart_model",
-        "embedding_model", "ollama_host", "llm_timeout",
+        "embedding_model", "embedding_dimension", "ollama_host", "llm_timeout",
         "memory_retrieval_limit", "memory_sim_weight",
         "tool_calling_enabled", "streaming_enabled", "native_tool_calling",
         "tool_call_confirm_high_permission", "audit_log_enabled",
@@ -767,7 +768,9 @@ def test_web_search_no_results():
     tool = WebSearchTool(provider=mock_provider)
     result = tool.execute(query="xyznonexistent12345")
     assert len(result.get("results", [])) == 0
-    assert "error" in result or result.get("success") is False
+    assert result.get("success") is True
+    assert result.get("outcome") == "no_results"
+    assert result.get("message") == "No matching results were found."
 
     return 'query="xyznonexistent"', 'no results'
 def test_web_search_provider_error():
@@ -777,7 +780,8 @@ def test_web_search_provider_error():
     tool = WebSearchTool(provider=mock_provider)
     result = tool.execute(query="test")
     assert result["success"] is False
-    assert "error" in result
+    assert result["outcome"] == "provider_error"
+    assert result["error"] == "The web-search provider is currently unavailable."
 
 
     return 'query="test', 'error'

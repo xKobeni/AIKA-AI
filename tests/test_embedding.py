@@ -13,13 +13,14 @@ from llm.embedding_service import EmbeddingService
 class TestEmbeddingService:
 
     def test_generate_embedding_returns_vector(self):
-        mock_response = {"embeddings": [[0.1, 0.2, 0.3, 0.4, 0.5]]}
+        expected = [0.1] * 768
+        mock_response = {"embeddings": [expected]}
         with patch("llm.embedding_service.ollama.embed", return_value=mock_response):
             service = EmbeddingService()
             result = service.generate_embedding("AIKA is built with Python")
             assert result is not None
-            assert len(result) == 5
-            assert result == [0.1, 0.2, 0.3, 0.4, 0.5]
+            assert len(result) == 768
+            assert result == expected
 
     def test_generate_embedding_empty_text_returns_none(self):
         service = EmbeddingService()

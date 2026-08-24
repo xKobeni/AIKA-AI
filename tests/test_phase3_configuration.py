@@ -192,6 +192,7 @@ def test_embedding_refresh_applies_model_host_and_timeout():
         "llm.embedding_service.settings"
     ) as mock_settings:
         mock_settings.embedding_model = "new-embedding"
+        mock_settings.embedding_dimension = 768
         mock_settings.ollama_host = "http://ollama.internal:11434"
         mock_settings.llm_timeout = 19
         service = EmbeddingService()

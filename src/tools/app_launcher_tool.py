@@ -6,15 +6,26 @@ import shutil
 from tools.base_tool import BaseTool
 from tools.tool_category import ToolCategory
 from tools.tool_permission import ToolPermission
+from tools.path_security import (
+    OUTSIDE_WORKSPACE_ERROR,
+    is_protected_path,
+    resolve_user_scoped_path,
+)
 from config.settings import settings
 
 logger = logging.getLogger(__name__)
 
 APP_ALIASES = {
+    "calc": "calculator",
+    "code": "vscode",
     "google chrome": "chrome",
     "vs code": "vscode",
     "visual studio code": "vscode",
     "file explorer": "explorer",
+    "command prompt": "cmd",
+    "control panel": "control",
+    "wt": "terminal",
+    "windows terminal": "terminal",
 }
 
 DIRECT_APPS = {
@@ -22,10 +33,10 @@ DIRECT_APPS = {
     "notepad": "notepad",
     "calculator": "calc",
     "explorer": "explorer",
-    "terminal": "cmd",
+    "terminal": "wt",
     "cmd": "cmd",
     "powershell": "powershell",
-    "control panel": "control",
+    "control": "control",
 }
 
 URI_APPS = {
@@ -53,10 +64,37 @@ KNOWN_PATHS = {
     "notepad": [r"%WINDIR%\system32\notepad.exe"],
     "calc": [r"%WINDIR%\system32\calc.exe"],
     "explorer": [r"%WINDIR%\explorer.exe"],
+    "wt": [r"%LOCALAPPDATA%\Microsoft\WindowsApps\wt.exe"],
     "cmd": [r"%WINDIR%\system32\cmd.exe"],
     "powershell": [r"%WINDIR%\system32\WindowsPowerShell\v1.0\powershell.exe"],
     "control": [r"%WINDIR%\system32\control.exe"],
 }
+
+ALLOWED_APPS = frozenset({
+    "file",
+    "camera",
+    "chrome",
+    "spotify",
+    "firefox",
+    "vscode",
+    "notepad",
+    "calculator",
+    "explorer",
+    "terminal",
+    "cmd",
+    "powershell",
+    "control",
+    "settings",
+})
+
+SAFE_FILE_EXTENSIONS = frozenset({
+    ".txt", ".md", ".pdf", ".rtf", ".odt",
+    ".doc", ".docx", ".xls", ".xlsx", ".csv", ".tsv",
+    ".ppt", ".pptx",
+    ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".svg",
+    ".mp3", ".wav", ".m4a", ".mp4", ".mov", ".avi", ".mkv",
+    ".json", ".yaml", ".yml", ".toml", ".ini", ".log",
+})
 
 
 class AppLauncherTool(BaseTool):
@@ -92,6 +130,12 @@ class AppLauncherTool(BaseTool):
         if found:
             return found
         return None
+
+    def _launch_process(self, command, *, new_console=False):
+        kwargs = {}
+        if new_console and os.name == "nt":
+            kwargs["creationflags"] = subprocess.CREATE_NEW_CONSOLE
+        return subprocess.Popen(command, **kwargs)
 
     def _fallback_search(self, name):
         """Search using where.exe, known paths, and system app registry."""
@@ -132,12 +176,15 @@ class AppLauncherTool(BaseTool):
                 "app_name": {
                     "type": "string",
                     "required": True,
-                    "description": "Name of the application to launch"
+                    "description": (
+                        "Approved application name, or 'file' to open a "
+                        "contained file path"
+                    )
                 },
                 "path": {
                     "type": "string",
                     "required": False,
-                    "description": "Optional file/folder path to open with the app"
+                    "description": "File path; valid only when app_name is 'file'"
                 }
             }
         }
@@ -150,10 +197,71 @@ class AppLauncherTool(BaseTool):
                 "error": "App launcher is disabled"
             }
 
+        if not isinstance(app_name, str) or not app_name.strip():
+            return {
+                "success": False,
+                "error": "Application name must be a non-empty string",
+            }
+
         name = app_name.strip().lower()
         name = APP_ALIASES.get(name, name)
 
         logger.info("Launch: %s", name)
+
+        if name not in ALLOWED_APPS:
+            return {
+                "success": False,
+                "error": f"Unsupported application: {app_name}",
+            }
+
+        if name == "file":
+            if not path:
+                return {"success": False, "error": "No file path provided"}
+            root, target = resolve_user_scoped_path(
+                settings.file_search_root_path, path
+            )
+            if target is None:
+                return {"success": False, "error": OUTSIDE_WORKSPACE_ERROR}
+            if is_protected_path(target, root):
+                return {"success": False, "error": "Access denied: protected path"}
+            if not target.is_file():
+                return {
+                    "success": False,
+                    "error": f"File not found: {path}",
+                }
+            extension = target.suffix.lower()
+            if extension not in SAFE_FILE_EXTENSIONS:
+                display_extension = extension or "files without an extension"
+                return {
+                    "success": False,
+                    "error": (
+                        "File type is not allowed for launching: "
+                        f"{display_extension}"
+                    ),
+                }
+            if os.name != "nt":
+                return {
+                    "success": False,
+                    "error": "Opening files is only supported on Windows",
+                }
+            try:
+                os.startfile(str(target))
+                return {
+                    "success": True,
+                    "path": str(target),
+                    "message": f"Opened {target.name}",
+                }
+            except Exception as exc:
+                return {
+                    "success": False,
+                    "error": f"Failed to open file: {type(exc).__name__}",
+                }
+
+        if path is not None:
+            return {
+                "success": False,
+                "error": "Application arguments are not supported",
+            }
 
         if name in URI_APPS:
             try:
@@ -168,28 +276,27 @@ class AppLauncherTool(BaseTool):
                 return {"success": False, "error": f"Failed to open {app_name}: {e}"}
 
         cmd_name = DIRECT_APPS.get(name, name)
+        new_console = name in {"cmd", "powershell"}
 
         try:
             exe_path = self._find_executable(cmd_name)
             cmd_list = [exe_path] if exe_path else [cmd_name]
-            if path:
-                cmd_list.append(path)
-            subprocess.Popen(cmd_list)
+            self._launch_process(cmd_list, new_console=new_console)
             return {"success": True, "message": f"Opened {app_name}"}
 
         except FileNotFoundError:
-            fallback = self._fallback_search(cmd_name)
+            fallback = self._fallback_search(name)
             if fallback:
                 try:
                     if "!" in fallback:
-                        subprocess.Popen(
+                        self._launch_process(
                             ["explorer.exe", f"shell:AppsFolder\\{fallback}"]
                         )
                     else:
                         cmd_list = [fallback]
-                        if path:
-                            cmd_list.append(path)
-                        subprocess.Popen(cmd_list)
+                        self._launch_process(
+                            cmd_list, new_console=new_console
+                        )
                     return {"success": True, "message": f"Opened {app_name}"}
                 except Exception as e:
                     return {"success": False, "error": f"Failed to open {app_name}: {e}"}

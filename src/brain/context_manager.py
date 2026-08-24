@@ -2,17 +2,9 @@ import time
 import logging
 
 from config.settings import settings
+from brain.prompt_budgeter import count_tokens as _count_tokens
 
 logger = logging.getLogger(__name__)
-
-
-def _count_tokens(text):
-    if not text:
-        return 0
-    words = len(text.split())
-    word_estimate = words * 1.3
-    character_estimate = len(text) / 4
-    return int(max(word_estimate, character_estimate)) + 1
 
 
 class ContextManager:
@@ -228,23 +220,16 @@ class ContextManager:
                 )
 
         # -------------------------
-        # Token Budgeting
+        # Complete prompt budgeting is applied after persona, grounding,
+        # conversation history, tool results, and the user request are assembled.
+        # Do not stop at the first oversized memory section here because doing so
+        # would discard every later section before the shared budgeter can rank it.
         # -------------------------
 
-        memory_parts = []
-        token_count = 0
-
-        for label, text in sections:
-            part = f"=== {label} ===\n{text}"
-            estimated = _count_tokens(part)
-
-            if token_count + estimated > self.max_context_tokens:
-                break
-
-            memory_parts.append(part)
-            token_count += estimated
-
-        memory_context = "\n\n".join(memory_parts)
+        memory_context = "\n\n".join(
+            f"=== {label} ===\n{text}"
+            for label, text in sections
+        )
 
         t_total = time.time() - t0
 

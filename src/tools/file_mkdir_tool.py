@@ -13,7 +13,7 @@ class FileMkdirTool(BaseTool):
 
     description = "Creates a directory"
     category = ToolCategory.FILE
-    permission = ToolPermission.MEDIUM
+    permission = ToolPermission.HIGH
 
     @property
     def name(self):
@@ -39,6 +39,12 @@ class FileMkdirTool(BaseTool):
         }
 
     def execute(self, dir_path, parents=True, root_path=None):
+
+        if not settings.file_write_enabled:
+            return {
+                "success": False,
+                "error": "File write is disabled"
+            }
 
         if root_path is None:
             root_path = settings.file_search_root_path

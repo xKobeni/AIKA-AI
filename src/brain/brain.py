@@ -159,6 +159,8 @@ class AikaBrain:
         self.current_session = self.session_repo.create(
             agent_id=self.current_agent_id
         )
+        self.last_stream_status = "idle"
+        self.last_stream_error_type = None
 
         self.response_finalizer = ResponseFinalizer(
             self.conversation_repo,
@@ -375,7 +377,43 @@ class AikaBrain:
         resolver = getattr(self, "tool_intent_resolver", None)
         if resolver is None:
             return None
-        return resolver.resolve(user_message)
+        request = resolver.resolve(user_message)
+        if request is not None:
+            return request
+
+        resolve_followup = getattr(resolver, "resolve_followup", None)
+        if not callable(resolve_followup):
+            return None
+        session_id = getattr(
+            getattr(self, "current_session", None), "id", None
+        )
+        repository = getattr(self, "conversation_repo", None)
+        if not session_id or repository is None:
+            return None
+        try:
+            rows = list(repository.get_by_session(
+                session_id,
+                limit=12,
+                agent_id=self.current_agent_id,
+            ) or [])
+        except Exception as exc:
+            logger.warning(
+                "Could not resolve contextual tool intent | error_type=%s",
+                type(exc).__name__,
+            )
+            return None
+        previous_user_message = next(
+            (
+                str(getattr(row, "content", "") or "").strip()
+                for row in reversed(rows)
+                if getattr(row, "role", None) == "user"
+                and str(getattr(row, "content", "") or "").strip()
+            ),
+            None,
+        )
+        if previous_user_message is None:
+            return None
+        return resolve_followup(user_message, previous_user_message)
 
     def _finalize_agent_response(
         self,
@@ -881,8 +919,12 @@ class AikaBrain:
 
     def process_stream(self, user_message) -> Iterator[str]:
 
+        self.last_stream_status = "running"
+        self.last_stream_error_type = None
+
         if settings.streaming_enabled is False:
             yield self.process(user_message)
+            self.last_stream_status = "completed"
             return
 
         t0 = time.time()
@@ -984,6 +1026,12 @@ class AikaBrain:
                 intent=decision.value,
                 agent_id=self.current_agent_id
             )
+            self.last_stream_status = getattr(
+                self.chat_handler, "last_run_status", "completed"
+            )
+            self.last_stream_error_type = getattr(
+                self.chat_handler, "last_error_type", None
+            )
             self._complete_response(
                 user_message,
                 metadata=getattr(
@@ -1023,6 +1071,13 @@ class AikaBrain:
         ):
             response_chunks.append(chunk)
             yield chunk
+
+        self.last_stream_status = getattr(
+            self.agent_loop, "last_run_status", "completed"
+        )
+        self.last_stream_error_type = getattr(
+            self.agent_loop, "last_error_type", None
+        )
 
         response = "".join(response_chunks)
         visible_response = ensure_visible_response(response)

@@ -4,6 +4,11 @@ import re
 
 from sqlalchemy import inspect, text
 
+from config.settings import settings
+from database.embedding_compatibility import (
+    EmbeddingConfigurationError,
+    validate_configured_embedding_dimension,
+)
 from database.models import EMBEDDING_DIMENSION
 
 
@@ -18,7 +23,20 @@ class Migration:
     apply: object
 
 
-def validate_embedding_schema(connection):
+def validate_embedding_schema(connection, expected_dimension=None):
+    configured_dimension = (
+        settings.embedding_dimension
+        if expected_dimension is None
+        else expected_dimension
+    )
+    try:
+        expected_dimension = validate_configured_embedding_dimension(
+            configured_dimension,
+            EMBEDDING_DIMENSION,
+        )
+    except EmbeddingConfigurationError as exc:
+        raise MigrationBlockedError(str(exc)) from exc
+
     if connection.dialect.name != "postgresql":
         raise MigrationBlockedError(
             "AIKA schema validation requires PostgreSQL with pgvector."
@@ -36,7 +54,7 @@ def validate_embedding_schema(connection):
           AND NOT a.attisdropped
     """)).all()
     actual = {(table, column): type_name for table, column, type_name in rows}
-    expected_type = f"vector({EMBEDDING_DIMENSION})"
+    expected_type = f"vector({expected_dimension})"
     for table in ("memories", "conversations"):
         found = actual.get((table, "embedding"))
         if found != expected_type:

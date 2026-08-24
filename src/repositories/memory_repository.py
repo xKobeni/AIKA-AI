@@ -1,5 +1,6 @@
 from database.db import db_session
-from database.models import Memory
+from database.embedding_compatibility import validate_embedding_vector
+from database.models import Memory, EMBEDDING_DIMENSION
 from sqlalchemy import func
 from datetime import datetime, timezone
 import math
@@ -11,6 +12,12 @@ class MemoryRepository:
     def create(self, memory_type, content, embedding, category="fact",
                importance=5, profile_score=0, source_conversation_id=None,
                agent_id=None):
+
+        validate_embedding_vector(
+            embedding,
+            EMBEDDING_DIMENSION,
+            name="memory embedding",
+        )
 
         with db_session() as db:
 
@@ -182,6 +189,12 @@ class MemoryRepository:
         agent_id=None,
         candidate_multiplier=None,
     ):
+
+        validate_embedding_vector(
+            query_embedding,
+            EMBEDDING_DIMENSION,
+            name="memory query embedding",
+        )
 
         if limit is None:
             limit = settings.memory_retrieval_limit

@@ -33,6 +33,7 @@ class Settings:
         self.fast_model: str = os.getenv("FAST_MODEL", "qwen2.5:3b")
         self.smart_model: str = os.getenv("SMART_MODEL", "llama3:8b")
         self.embedding_model: str = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
+        self.embedding_dimension: int = int(os.getenv("EMBEDDING_DIMENSION", "768"))
         self.ollama_host: str = os.getenv("OLLAMA_HOST", "http://localhost:11434")
         self.llm_timeout: int = int(os.getenv("LLM_TIMEOUT", "30"))
         self.model_router_long_message_words: int = int(os.getenv(

@@ -70,7 +70,11 @@ class ToolResultFormatter:
     def _format_web_results(self, result):
         results = result.get("results", [])
         if not results:
-            return "No search results"
+            return str(
+                result.get("message")
+                or result.get("error")
+                or "No matching results were found."
+            )
         lines = []
         for r in results[:5]:
             title = r.get("title", "")

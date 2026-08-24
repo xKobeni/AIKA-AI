@@ -10,6 +10,15 @@ logger = logging.getLogger(__name__)
 
 _redact_sensitive = redact_sensitive
 
+FILESYSTEM_MUTATION_TOOLS = frozenset({
+    "file_write",
+    "file_append",
+    "file_edit",
+    "file_multi_edit",
+    "file_mkdir",
+    "file_delete",
+})
+
 
 class ToolManager:
 
@@ -45,7 +54,10 @@ class ToolManager:
     def register_tool(self, tool):
 
         self.tools[tool.name] = tool
-        if hasattr(tool, 'permission') and tool.permission == ToolPermission.HIGH:
+        if (
+            tool.name in FILESYSTEM_MUTATION_TOOLS
+            or getattr(tool, "permission", None) == ToolPermission.HIGH
+        ):
             self._high_permission_tools.add(tool.name)
 
     def get_tool(self, tool_name):

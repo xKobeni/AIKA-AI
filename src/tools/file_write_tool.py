@@ -5,7 +5,7 @@ from config.settings import settings
 from tools.path_security import (
     OUTSIDE_WORKSPACE_ERROR,
     is_protected_path,
-    resolve_workspace_path,
+    resolve_user_scoped_path,
 )
 
 
@@ -14,6 +14,7 @@ class FileWriteTool(BaseTool):
     description = "Creates or writes content to a text file"
     category = ToolCategory.FILE
     permission = ToolPermission.HIGH
+    response_policy = "action_confirmation"
 
     def __init__(self):
         self.encoding = settings.file_read_encoding
@@ -39,6 +40,12 @@ class FileWriteTool(BaseTool):
                     "type": "string",
                     "required": True,
                     "description": "Content to write to the file"
+                },
+                "fail_if_exists": {
+                    "type": "boolean",
+                    "required": False,
+                    "default": False,
+                    "description": "Refuse to overwrite an existing file"
                 }
             }
         }
@@ -46,7 +53,9 @@ class FileWriteTool(BaseTool):
     def _is_protected_path(self, file_path):
         return is_protected_path(file_path)
 
-    def execute(self, file_path, content, root_path=None):
+    def execute(
+        self, file_path, content, root_path=None, fail_if_exists=False
+    ):
 
         if not settings.file_write_enabled:
             return {
@@ -69,7 +78,7 @@ class FileWriteTool(BaseTool):
         if root_path is None:
             root_path = settings.file_search_root_path
 
-        root, path = resolve_workspace_path(root_path, file_path)
+        root, path = resolve_user_scoped_path(root_path, file_path)
         if path is None:
             return {
                 "success": False,
@@ -80,6 +89,12 @@ class FileWriteTool(BaseTool):
             return {
                 "success": False,
                 "error": f"Cannot write to protected path: {file_path}"
+            }
+
+        if fail_if_exists and path.exists():
+            return {
+                "success": False,
+                "error": f"File already exists: {file_path}"
             }
 
         try:

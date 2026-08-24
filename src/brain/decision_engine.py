@@ -70,6 +70,23 @@ def _is_conversational_question(text):
     return any(text.startswith(p) or p in text for p in PERSONAL_INDICATORS)
 
 
+def _is_stable_comparison_question(text):
+    """Recognize narrow conceptual comparisons that need no personal memory."""
+    if not re.search(
+        r"\b(?:what(?:'s|s|\s+is)\s+|tell\s+me\s+)?"
+        r"(?:the\s+)?difference\s+between\b",
+        text,
+    ):
+        return False
+    if re.search(
+        r"\b(?:latest|current|today|newest|recent|price|release|"
+        r"20\d{2})\b",
+        text,
+    ):
+        return False
+    return not re.search(r"\b(?:my|our)\b", text)
+
+
 class DecisionEngine:
 
     def __init__(self, intent_classifier=None):
@@ -402,6 +419,10 @@ class DecisionEngine:
 
         if is_short and (is_greeting or is_one_word):
             logger.debug("-> CHAT (quick detection, skipped LLM classifier)")
+            return Action.CHAT
+
+        if _is_stable_comparison_question(text):
+            logger.debug("-> CHAT (stable conceptual comparison)")
             return Action.CHAT
 
         # ============================

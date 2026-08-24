@@ -10,6 +10,9 @@ EMPTY_RESPONSE_FALLBACK = (
 GENERATION_ERROR_FALLBACK = (
     "I'm having trouble generating a response right now. Please try again."
 )
+STREAM_INTERRUPTION_FALLBACK = (
+    "The response was interrupted before it could finish. Please try again."
+)
 
 
 def ensure_visible_response(response, fallback=EMPTY_RESPONSE_FALLBACK):

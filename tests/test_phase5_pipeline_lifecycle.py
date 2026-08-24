@@ -152,6 +152,32 @@ def test_streaming_chat_finalizes_stable_error_without_backend_details():
     assert response == GENERATION_ERROR_FALLBACK
     assert "private backend detail" not in response
     assert finalizer.finalize.call_args.args[0] == GENERATION_ERROR_FALLBACK
+    assert handler.last_run_status == "llm_error"
+    assert handler.last_error_type == "RuntimeError"
+
+
+def test_interrupted_chat_stream_persists_exact_visible_partial_response():
+    from handlers.response_finalizer import STREAM_INTERRUPTION_FALLBACK
+
+    handler, llm, finalizer = _chat_handler_for_response(stream=[])
+
+    def interrupted_stream():
+        yield "The first part of the answer."
+        raise RuntimeError("private backend detail")
+
+    llm.generate_stream.return_value = interrupted_stream()
+
+    response = "".join(handler.chat_stream("Hello", agent_id="aika"))
+    expected = (
+        "The first part of the answer.\n\n"
+        + STREAM_INTERRUPTION_FALLBACK
+    )
+
+    assert response == expected
+    assert "private backend detail" not in response
+    assert handler.last_run_status == "llm_error"
+    assert handler.last_error_type == "RuntimeError"
+    assert finalizer.finalize.call_args.args[0] == expected
 
 
 def test_brain_stream_boundary_delivers_fallback_before_finalizing():

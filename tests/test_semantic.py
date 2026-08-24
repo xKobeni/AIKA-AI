@@ -14,12 +14,12 @@ from repositories.memory_repository import MemoryRepository
 class TestSemanticSearch:
 
     def test_generate_embedding_returns_list(self):
-        mock_response = {"embeddings": [[0.1, 0.2, 0.3]]}
+        mock_response = {"embeddings": [[0.1] * 768]}
         with patch("llm.embedding_service.ollama.embed", return_value=mock_response):
             service = EmbeddingService()
             result = service.generate_embedding("What language is AIKA built with?")
             assert isinstance(result, list)
-            assert len(result) == 3
+            assert len(result) == 768
 
     def test_semantic_search_returns_list(self):
         mock_memory = MagicMock()

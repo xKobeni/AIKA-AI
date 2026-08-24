@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from models.actions import Action
 from config.settings import settings
 
@@ -46,11 +48,109 @@ class TestShellTool:
 
 class TestAppLauncherTool:
 
-    def test_unknown_app_returns_message(self, app_launcher_tool):
-        result = app_launcher_tool.execute(
-            "this_app_does_not_exist_xyz_12345"
+    def test_desktop_file_opens_with_windows_default_application(
+        self, app_launcher_tool, tmp_path
+    ):
+        blank_file = tmp_path / "blank.txt"
+        blank_file.write_text("", encoding="utf-8")
+        with patch(
+            "tools.path_security.resolve_known_user_folder",
+            return_value=tmp_path,
+        ), patch("tools.app_launcher_tool.os.name", "nt"), patch(
+            "tools.app_launcher_tool.os.startfile"
+        ) as startfile:
+            result = app_launcher_tool.execute(
+                "file", path="desktop://blank.txt"
+            )
+
+        assert result == {
+            "success": True,
+            "path": str(blank_file.resolve()),
+            "message": "Opened blank.txt",
+        }
+        startfile.assert_called_once_with(str(blank_file.resolve()))
+
+    def test_desktop_file_open_blocks_traversal(
+        self, app_launcher_tool, tmp_path
+    ):
+        with patch(
+            "tools.path_security.resolve_known_user_folder",
+            return_value=tmp_path,
+        ):
+            result = app_launcher_tool.execute(
+                "file", path="desktop://../secret.txt"
+            )
+
+        assert result["success"] is False
+        assert "outside workspace" in result["error"]
+
+    def test_executable_file_type_is_rejected_before_open(
+        self, app_launcher_tool, tmp_path
+    ):
+        script = tmp_path / "run.cmd"
+        script.write_text("echo blocked", encoding="utf-8")
+        with patch(
+            "tools.path_security.resolve_known_user_folder",
+            return_value=tmp_path,
+        ), patch("tools.app_launcher_tool.os.startfile") as startfile:
+            result = app_launcher_tool.execute(
+                "file", path="desktop://run.cmd"
+            )
+
+        assert result == {
+            "success": False,
+            "error": "File type is not allowed for launching: .cmd",
+        }
+        startfile.assert_not_called()
+
+    def test_windows_terminal_alias_launches_wt(self, app_launcher_tool):
+        with patch.object(
+            app_launcher_tool,
+            "_find_executable",
+            return_value=(
+                r"C:\Users\Adrian\AppData\Local\Microsoft\WindowsApps\wt.exe"
+            ),
+        ), patch("tools.app_launcher_tool.subprocess.Popen") as popen:
+            result = app_launcher_tool.execute("windows terminal")
+
+        assert result == {"success": True, "message": "Opened windows terminal"}
+        popen.assert_called_once_with(
+            [r"C:\Users\Adrian\AppData\Local\Microsoft\WindowsApps\wt.exe"]
         )
-        assert "message" in result or "error" in result
+
+    def test_command_arguments_are_rejected_before_launch(self, app_launcher_tool):
+        with patch.object(app_launcher_tool, "_find_executable") as find, patch(
+            "tools.app_launcher_tool.subprocess.Popen"
+        ) as popen:
+            result = app_launcher_tool.execute("cmd", path="/c whoami")
+
+        assert result == {
+            "success": False,
+            "error": "Application arguments are not supported",
+        }
+        find.assert_not_called()
+        popen.assert_not_called()
+
+    def test_unknown_app_is_rejected_without_discovery_or_launch(
+        self, app_launcher_tool
+    ):
+        with patch.object(app_launcher_tool, "_find_executable") as find, patch.object(
+            app_launcher_tool, "_fallback_search"
+        ) as fallback, patch("tools.app_launcher_tool.subprocess.Popen") as popen:
+            result = app_launcher_tool.execute(
+                "this_app_does_not_exist_xyz_12345"
+            )
+
+        assert result == {
+            "success": False,
+            "error": (
+                "Unsupported application: "
+                "this_app_does_not_exist_xyz_12345"
+            ),
+        }
+        find.assert_not_called()
+        fallback.assert_not_called()
+        popen.assert_not_called()
 
     def test_tool_metadata(self, app_launcher_tool):
         assert app_launcher_tool.name == "app_launcher"
@@ -59,6 +159,28 @@ class TestAppLauncherTool:
 
 
 class TestFolderTool:
+
+    def test_desktop_search_opens_verified_folder(self, tmp_path):
+        from tools.folder_tool import FolderTool
+
+        portfolio = tmp_path / "Portfolio"
+        portfolio.mkdir()
+        with patch(
+            "tools.path_security.resolve_known_user_folder",
+            return_value=tmp_path,
+        ), patch("tools.folder_tool.os.name", "nt"), patch(
+            "tools.folder_tool.os.startfile"
+        ) as startfile:
+            result = FolderTool().execute(
+                path="desktop", find="portfolio", open_match=True
+            )
+
+        assert result == {
+            "success": True,
+            "path": str(portfolio.resolve()),
+            "message": "Opened Portfolio folder",
+        }
+        startfile.assert_called_once_with(str(portfolio.resolve()))
 
     def test_list_root(self, sandboxed_folder):
         tool, workspace = sandboxed_folder

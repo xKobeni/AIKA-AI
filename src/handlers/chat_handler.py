@@ -3,11 +3,12 @@ import logging
 from typing import Iterator
 
 from config.settings import settings
-from brain.context_manager import _count_tokens
+from brain.prompt_budgeter import PromptBudgeter, PromptSection
 from brain.request_context import RequestContextBuilder
 from handlers.response_finalizer import (
     GENERATION_ERROR_FALLBACK,
     ResponseFinalizer,
+    STREAM_INTERRUPTION_FALLBACK,
     ensure_visible_response,
 )
 
@@ -58,6 +59,9 @@ class ChatHandler:
         self.log_level = settings.log_level
         self._last_user_conv_id = None
         self.last_response_metadata = None
+        self.last_run_status = "idle"
+        self.last_error_type = None
+        self.prompt_budgeter = PromptBudgeter(self._prompt_limit())
 
     @staticmethod
     def _assemble_prompt_sections(
@@ -81,6 +85,7 @@ class ChatHandler:
 
     def refresh_from_settings(self):
         self.log_level = settings.log_level
+        self.prompt_budgeter.set_limit(self._prompt_limit())
 
     def _get_model_for_agent(self, agent_id=None):
         if agent_id and self.agent_registry:
@@ -91,59 +96,50 @@ class ChatHandler:
 
     @staticmethod
     def _truncate_to_tokens(text, token_limit):
-        if token_limit <= 0:
-            return ""
-        words = text.split()
-        if _count_tokens(text) <= token_limit:
-            return text
-        low, high = 0, len(words)
-        while low < high:
-            mid = (low + high + 1) // 2
-            if _count_tokens(" ".join(words[:mid])) <= token_limit:
-                low = mid
-            else:
-                high = mid - 1
-        clipped = " ".join(words[:low]).rstrip()
-        return f"{clipped} ..." if clipped else ""
+        return PromptBudgeter.truncate_text(text, token_limit)
+
+    def _prompt_limit(self):
+        max_tokens = getattr(self.context_manager, "max_context_tokens", None)
+        if isinstance(max_tokens, bool) or not isinstance(max_tokens, int):
+            max_tokens = getattr(settings, "max_context_tokens", 6000)
+        if isinstance(max_tokens, bool) or not isinstance(max_tokens, int):
+            max_tokens = 6000
+        return max(1, max_tokens)
 
     def _budget_prompt(self, sections):
-        """Budget the complete prompt while preserving persona and final request."""
-        sections = [section for section in sections if section and section.strip()]
-        if not sections:
-            return ""
-
-        max_tokens = getattr(self.context_manager, "max_context_tokens", None)
-        if not isinstance(max_tokens, int):
-            max_tokens = getattr(settings, "max_context_tokens", 6000)
-        if not isinstance(max_tokens, int):
-            max_tokens = 6000
-        max_tokens = max(1, max_tokens)
-        required_indexes = {0}
-        required_indexes.update(range(max(0, len(sections) - 2), len(sections)))
-        selected = {}
-        remaining = max_tokens
-
-        required_order = list(range(max(0, len(sections) - 2), len(sections)))
-        if 0 not in required_order:
-            required_order.append(0)
-        for index in required_order:
-            separator_cost = 1 if selected else 0
-            fitted = self._truncate_to_tokens(
-                sections[index], max(0, remaining - separator_cost)
-            )
-            if fitted:
-                selected[index] = fitted
-                remaining -= _count_tokens(fitted) + separator_cost
-
+        """Budget the complete chat prompt with shared preservation rules."""
+        self.prompt_budgeter.set_limit(self._prompt_limit())
+        prompt_sections = []
+        last_index = len(sections) - 1
         for index, section in enumerate(sections):
-            if index in required_indexes or remaining <= 1:
-                continue
-            fitted = self._truncate_to_tokens(section, remaining - 1)
-            if fitted:
-                selected[index] = fitted
-                remaining -= _count_tokens(fitted) + 1
+            text = str(section or "")
+            upper = text.upper()
+            is_user_request = index == last_index or text.startswith("User:\n")
+            is_grounding = "IDENTITY AND GROUNDING RULES" in upper
+            is_instructions = (
+                "=== INSTRUCTIONS ===" in upper
+                or index == last_index - 1
+            )
+            is_web_result = "=== WEB SEARCH RESULTS" in upper
+            is_recent = "=== RECENT CONVERSATION ===" in upper
 
-        return "\n\n".join(selected[index] for index in sorted(selected))
+            priority = 100 if is_user_request else 95 if (
+                is_grounding or is_instructions or is_web_result
+            ) else 75 if "TOOLS AVAILABLE" in upper else 65 if index == 0 else 50
+            if is_recent:
+                priority = 70
+            prompt_sections.append(PromptSection(
+                key=f"chat:{index}",
+                text=text,
+                priority=priority,
+                required=(
+                    is_user_request or is_grounding
+                    or is_instructions or is_web_result
+                ),
+                keep="end" if is_recent else "start",
+            ))
+
+        return self.prompt_budgeter.budget_text_sections(prompt_sections)
 
     def _model_metrics(self, prompt, response, llm_seconds):
         metrics = {}
@@ -421,6 +417,8 @@ class ChatHandler:
         t_chat = time.time()
         self._last_user_conv_id = None
         self.last_response_metadata = None
+        self.last_run_status = "running"
+        self.last_error_type = None
 
         if len(user_message) > settings.max_input_length:
             yield (
@@ -521,15 +519,26 @@ class ChatHandler:
                 response_chunks.append(chunk)
                 yield chunk
         except Exception as e:
-            logger.error("LLM stream failed: %s", type(e).__name__)
-            prefix = "\n\n" if any(
+            self.last_run_status = "llm_error"
+            self.last_error_type = type(e).__name__
+            logger.error("LLM stream failed: %s", self.last_error_type)
+            had_content = any(
                 str(chunk or "").strip() for chunk in response_chunks
-            ) else ""
-            failure_chunk = prefix + GENERATION_ERROR_FALLBACK
+            )
+            fallback = (
+                STREAM_INTERRUPTION_FALLBACK
+                if had_content
+                else GENERATION_ERROR_FALLBACK
+            )
+            failure_chunk = ("\n\n" if had_content else "") + fallback
             response_chunks.append(failure_chunk)
             yield failure_chunk
 
         response = "".join(response_chunks)
+        if self.last_run_status == "running":
+            self.last_run_status = (
+                "completed" if response.strip() else "fallback_response"
+            )
         visible_response = ensure_visible_response(response)
         if not response.strip():
             response = visible_response

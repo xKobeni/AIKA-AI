@@ -198,6 +198,26 @@ class AikaService:
                     self._event(
                         operation, AikaEventType.CANCELLED, state="cancelled"
                     )
+                elif getattr(
+                    self.brain, "last_stream_status", None
+                ) == "llm_error":
+                    error_type = str(
+                        getattr(
+                            self.brain,
+                            "last_stream_error_type",
+                            "StreamError",
+                        )
+                        or "StreamError"
+                    )
+                    if not error_type.isidentifier():
+                        error_type = "StreamError"
+                    self._event(
+                        operation,
+                        AikaEventType.ERROR,
+                        error="AIKA response was interrupted",
+                        error_type=error_type[:80],
+                        already_reported=True,
+                    )
                 else:
                     self._event(
                         operation,
@@ -220,11 +240,11 @@ class AikaService:
             )
         finally:
             self._confirmations.cancel_operation(operation.id)
-            operation.events.put(_END)
             self._thread_context.operation = None
             with self._lock:
                 if self._active is operation:
                     self._active = None
+            operation.events.put(_END)
 
     def stream(self, user_input: str) -> Iterator[AikaEvent]:
         if not isinstance(user_input, str) or not user_input.strip():

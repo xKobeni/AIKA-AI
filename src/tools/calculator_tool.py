@@ -25,6 +25,7 @@ class CalculatorTool(BaseTool):
     description = "Performs mathematical calculations"
     category = ToolCategory.PRODUCTIVITY
     permission = ToolPermission.LOW
+    response_policy = "direct_result"
 
     @property
     def name(self):

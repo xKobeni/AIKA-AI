@@ -9,6 +9,7 @@ class MemorySearchTool(BaseTool):
     description = "Searches stored memories using semantic search"
     category = ToolCategory.MEMORY
     permission = ToolPermission.LOW
+    response_policy = "direct_result"
 
     def __init__(
         self,

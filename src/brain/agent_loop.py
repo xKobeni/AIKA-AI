@@ -6,11 +6,13 @@ import ollama
 
 from config.settings import settings
 from brain.agent_context import AgentContext
+from brain.prompt_budgeter import PromptBudgeter, PromptSection
 from brain.tool_call_parser import ToolCallParser
 from brain.tool_result_formatter import ToolResultFormatter
 from brain.reflection import ReflectionEngine
 from models.actions import Action
 from models.tool_request import ToolRequest
+from handlers.response_finalizer import STREAM_INTERRUPTION_FALLBACK
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +92,7 @@ class AgentLoop:
         self.last_iterations = 0
         self.reflection = ReflectionEngine(llm=self.llm)
         self.native_tool_calling = getattr(settings, 'native_tool_calling', True)
+        self.prompt_budgeter = PromptBudgeter(settings.max_context_tokens)
 
     def _reset_run_observability(self):
         self.last_model_used = None
@@ -220,12 +223,190 @@ class AgentLoop:
     def _format_direct_response(self, tool_name, result, formatted):
         if not isinstance(result, dict):
             return str(result)
+        if tool_name == "web_search":
+            results = result.get("results", [])
+            if not results:
+                if (
+                    result.get("outcome") == "no_results"
+                    or result.get("success") is True
+                ):
+                    return "No matching results were found."
+                return "The web-search provider is currently unavailable."
         if not result.get("success", False):
             error = str(result.get("error", "The action failed.")).strip()
             return f"I couldn't complete that action: {error}"
         if tool_name == "app_launcher":
             return str(result.get("message") or "The application was opened.")
+        if tool_name == "calculator":
+            return f"The answer is {result.get('result', formatted)}."
+        if tool_name == "memory_search":
+            memories = [
+                str(memory).strip()
+                for memory in result.get("memories", [])
+                if str(memory).strip()
+            ]
+            if not memories:
+                return "I couldn't find any matching memories."
+            items = "\n".join(f"- {memory}" for memory in memories)
+            return f"Here’s what I found in your memories:\n\n{items}"
+        if tool_name == "web_search":
+            items = []
+            for index, item in enumerate(results[:5], start=1):
+                title = str(item.get("title") or "Untitled result").strip()
+                url = str(item.get("href") or item.get("url") or "").strip()
+                snippet = str(
+                    item.get("body") or item.get("snippet") or ""
+                ).strip()
+                details = [f"{index}. {title}"]
+                if snippet:
+                    details.append(snippet)
+                if url:
+                    details.append(url)
+                items.append("\n   ".join(details))
+            return "Here are the web search results:\n\n" + "\n\n".join(items)
+        if tool_name == "folder":
+            if result.get("message"):
+                return str(result["message"])
+            folders = list(result.get("folders", []))
+            files = list(result.get("files", []))
+            entries = folders + files
+            if not entries:
+                return f"The folder is empty: {result.get('path', '')}"
+            return "Here are the folder contents:\n\n" + "\n".join(
+                f"- {entry}" for entry in entries
+            )
+        if tool_name == "file_write":
+            return f"Created {result.get('file_path', 'the file')}."
         return str(result.get("text") or result.get("message") or formatted)
+
+    @staticmethod
+    def _web_sources(result):
+        if not isinstance(result, dict):
+            return []
+        sources = []
+        for index, item in enumerate(result.get("results", [])[:5], start=1):
+            if not isinstance(item, dict):
+                continue
+            url = str(item.get("href") or item.get("url") or "").strip()
+            if not url:
+                continue
+            title = str(item.get("title") or f"Source {index}").strip()
+            sources.append((title, url))
+        return sources
+
+    @staticmethod
+    def _missing_source_appendix(sources, response):
+        missing = [
+            (title, url) for title, url in sources
+            if url not in str(response or "")
+        ]
+        if not missing:
+            return ""
+        return "\n\nSources:\n" + "\n".join(
+            f"- {title}: {url}" for title, url in missing
+        )
+
+    @staticmethod
+    def _web_synthesis_rejection_reason(response, result):
+        text = str(response or "").strip()
+        if not text:
+            return "empty"
+        lowered = text.lower()
+        if "[tool result" in lowered or "[end result]" in lowered:
+            return "tool_wrapper"
+        if any(phrase in lowered for phrase in (
+            "previously attempted a web search",
+            "previously searched the web",
+            "earlier web search",
+        )):
+            return "stale_search_narrative"
+        if isinstance(result, dict) and result.get("results"):
+            if any(phrase in lowered for phrase in (
+                "no search results",
+                "no matching results",
+                "nothing was found",
+                "there are no movies",
+                "there aren't any movies",
+                "no movies are listed",
+            )):
+                return "contradicts_nonempty_results"
+        return None
+
+    def _synthesize_web_response(
+        self, context, result, formatted, agent_id=None, request_context=None
+    ):
+        fallback = self._format_direct_response(
+            "web_search", result, formatted
+        )
+        if not isinstance(result, dict) or not result.get("results"):
+            context.add_assistant_response(fallback)
+            return fallback
+        response_data = self._call_llm(
+            context,
+            agent_id=agent_id,
+            request_context=request_context,
+            allow_tools=False,
+        )
+        response = (
+            str(response_data.get("content", "") or "").strip()
+            if response_data is not None
+            else ""
+        )
+        rejection_reason = self._web_synthesis_rejection_reason(
+            response, result
+        )
+        if response and rejection_reason is None:
+            response += self._missing_source_appendix(
+                self._web_sources(result), response
+            )
+            self.last_run_status = "completed"
+            self.last_error_type = None
+        else:
+            if rejection_reason not in {None, "empty"}:
+                logger.warning(
+                    "Rejected web synthesis | reason=%s",
+                    rejection_reason,
+                )
+            response = fallback
+            self.last_run_status = "fallback_response"
+        context.add_assistant_response(response)
+        return response
+
+    def _synthesize_web_response_stream(
+        self, context, result, formatted, agent_id=None, request_context=None
+    ):
+        fallback = self._format_direct_response(
+            "web_search", result, formatted
+        )
+        if not isinstance(result, dict) or not result.get("results"):
+            context.add_assistant_response(fallback)
+            yield fallback
+            return
+        response = "".join(self._call_llm_stream(
+            context,
+            agent_id=agent_id,
+            request_context=request_context,
+            allow_tools=False,
+            retry_empty=False,
+            empty_fallback=fallback,
+            required_sources=self._web_sources(result),
+        ))
+        rejection_reason = self._web_synthesis_rejection_reason(
+            response, result
+        )
+        if rejection_reason not in {None, "empty"}:
+            logger.warning(
+                "Rejected streamed web synthesis | reason=%s",
+                rejection_reason,
+            )
+            response = fallback
+            self.last_run_status = "fallback_response"
+            self.last_error_type = None
+        elif not response.strip():
+            response = fallback
+            self.last_run_status = "fallback_response"
+        context.add_assistant_response(response)
+        yield response
 
     def _fallback_response(self, context):
         if context.actions_taken:
@@ -306,6 +487,7 @@ class AgentLoop:
         self.reflection_enabled = settings.agent_reflection_enabled
         self.model = settings.chat_model
         self.native_tool_calling = getattr(settings, 'native_tool_calling', True)
+        self.prompt_budgeter.set_limit(settings.max_context_tokens)
         self.reflection.refresh_from_settings()
 
     def _check_delegation_intent(self, llm_response, current_agent_id=None):
@@ -382,6 +564,14 @@ class AgentLoop:
                 context, tool_name, result, formatted
             ):
                 return context.final_response
+            if tool_name == "web_search":
+                return self._synthesize_web_response(
+                    context,
+                    result,
+                    formatted,
+                    agent_id=agent_id,
+                    request_context=request_context,
+                )
 
         for i in range(max_iter):
             context.iterations += 1
@@ -458,6 +648,14 @@ class AgentLoop:
                     context, tool_name, result, formatted
                 ):
                     break
+                if tool_name == "web_search":
+                    return self._synthesize_web_response(
+                        context,
+                        result,
+                        formatted,
+                        agent_id=agent_id,
+                        request_context=request_context,
+                    )
 
                 logger.debug(
                     "Agent loop iteration %d (native): %s -> %s",
@@ -508,6 +706,14 @@ class AgentLoop:
                 context, tool_name, result, formatted
             ):
                 break
+            if tool_name == "web_search":
+                return self._synthesize_web_response(
+                    context,
+                    result,
+                    formatted,
+                    agent_id=agent_id,
+                    request_context=request_context,
+                )
 
             logger.debug(
                 "Agent loop iteration %d: %s -> %s",
@@ -559,6 +765,15 @@ class AgentLoop:
             ):
                 yield context.final_response
                 return
+            if tool_name == "web_search":
+                yield from self._synthesize_web_response_stream(
+                    context,
+                    result,
+                    formatted,
+                    agent_id=agent_id,
+                    request_context=request_context,
+                )
+                return
 
         for i in range(max_iter):
             context.iterations += 1
@@ -589,9 +804,10 @@ class AgentLoop:
                         request_context=request_context,
                         allow_tools=False,
                     )
+                    return
                 else:
                     yield self._fallback_response(context)
-                break
+                    return
 
             llm_response = response_data.get("content", "").strip()
             tool_calls = response_data.get("tool_calls", [])
@@ -651,6 +867,15 @@ class AgentLoop:
                     context, tool_name, result, formatted
                 ):
                     break
+                if tool_name == "web_search":
+                    yield from self._synthesize_web_response_stream(
+                        context,
+                        result,
+                        formatted,
+                        agent_id=agent_id,
+                        request_context=request_context,
+                    )
+                    return
 
                 logger.debug(
                     "Agent loop iteration %d (native): %s -> %s",
@@ -702,6 +927,15 @@ class AgentLoop:
                 context, tool_name, result, formatted
             ):
                 break
+            if tool_name == "web_search":
+                yield from self._synthesize_web_response_stream(
+                    context,
+                    result,
+                    formatted,
+                    agent_id=agent_id,
+                    request_context=request_context,
+                )
+                return
 
             logger.debug(
                 "Agent loop iteration %d: %s -> %s",
@@ -720,36 +954,85 @@ class AgentLoop:
         else:
             yield self._fallback_response(context)
 
-    def _call_llm_stream(
+    def _prepare_llm_request(
         self,
         context,
+        *,
         agent_id=None,
         request_context=None,
         allow_tools=True,
-    ) -> Iterator[str]:
+    ):
+        """Budget system context, messages, and tool schemas as one payload."""
+        self.prompt_budgeter.set_limit(settings.max_context_tokens)
         native_tools = (
             self._get_native_tools_for_agent(agent_id)
             if allow_tools
             else []
         )
         use_native = bool(native_tools)
-
-        system_prompt = self._build_system_prompt(
+        system_sections = self._build_system_prompt_sections(
             context,
             agent_id=agent_id,
             native=use_native,
             request_context=request_context,
+            include_tools=allow_tools,
         )
-        messages = [{"role": "system", "content": system_prompt}]
+        context_messages = [
+            {
+                "role": message.get("role", "user"),
+                "content": str(message.get("content", "") or ""),
+            }
+            for message in context.messages
+        ]
+        messages, budgeted_tools = self.prompt_budgeter.budget_agent_request(
+            system_sections,
+            context_messages,
+            native_tools,
+            current_user_text=context.original_message,
+        )
 
-        for msg in context.messages:
-            if msg["role"] == "tool":
-                messages.append({
-                    "role": "tool",
-                    "content": msg["content"],
-                })
-            else:
-                messages.append({"role": msg["role"], "content": msg["content"]})
+        # If no native schema can fit, rebuild as a bounded legacy prompt rather
+        # than claiming native tool access without sending a usable definition.
+        if use_native and not budgeted_tools:
+            system_sections = self._build_system_prompt_sections(
+                context,
+                agent_id=agent_id,
+                native=False,
+                request_context=request_context,
+                include_tools=allow_tools,
+            )
+            messages, budgeted_tools = self.prompt_budgeter.budget_agent_request(
+                system_sections,
+                context_messages,
+                [],
+                current_user_text=context.original_message,
+            )
+
+        if len(budgeted_tools) < len(native_tools):
+            logger.warning(
+                "Prompt budget limited native tool schemas | included=%d total=%d",
+                len(budgeted_tools),
+                len(native_tools),
+            )
+        return messages, budgeted_tools
+
+    def _call_llm_stream(
+        self,
+        context,
+        agent_id=None,
+        request_context=None,
+        allow_tools=True,
+        retry_empty=True,
+        empty_fallback=None,
+        required_sources=None,
+    ) -> Iterator[str]:
+        messages, native_tools = self._prepare_llm_request(
+            context,
+            agent_id=agent_id,
+            request_context=request_context,
+            allow_tools=allow_tools,
+        )
+        use_native = bool(native_tools)
 
         profile = self._get_agent_profile(agent_id)
         explicit_model = profile.model if profile and profile.model else None
@@ -768,6 +1051,8 @@ class AgentLoop:
         self.last_model_used = use_model
 
         yielded_content = False
+        emitted_content = []
+        stream_interrupted = False
         try:
             kwargs = {"model": use_model, "messages": messages, "stream": True}
             if use_native:
@@ -783,13 +1068,42 @@ class AgentLoop:
                     content = str(chunk["message"]["content"] or "")
                     if content:
                         yielded_content = True
+                        emitted_content.append(content)
                         yield content
         except Exception as e:
+            stream_interrupted = True
             self.last_run_status = "llm_error"
             self.last_error_type = type(e).__name__
-            logger.warning("LLM stream call failed: %s", e)
+            logger.warning(
+                "LLM stream call failed: %s", self.last_error_type
+            )
+
+        if yielded_content:
+            if stream_interrupted:
+                suffix = "\n\n" + STREAM_INTERRUPTION_FALLBACK
+                suffix += self._missing_source_appendix(
+                    required_sources or [], "".join(emitted_content) + suffix
+                )
+                yield suffix
+                return
+            appendix = self._missing_source_appendix(
+                required_sources or [], "".join(emitted_content)
+            )
+            if appendix:
+                yield appendix
+            self.last_run_status = "completed"
+            self.last_error_type = None
+            return
 
         if not yielded_content:
+            if not retry_empty:
+                fallback = str(empty_fallback or self._fallback_response(context))
+                fallback += self._missing_source_appendix(
+                    required_sources or [], fallback
+                )
+                self.last_run_status = "fallback_response"
+                yield fallback
+                return
             retry = self._call_llm(
                 context,
                 agent_id=agent_id,
@@ -802,6 +1116,8 @@ class AgentLoop:
                 else ""
             )
             if retry_text:
+                self.last_run_status = "completed"
+                self.last_error_type = None
                 yield retry_text
             else:
                 if self.last_run_status == "running":
@@ -856,29 +1172,13 @@ class AgentLoop:
         request_context=None,
         allow_tools=True,
     ):
-        native_tools = (
-            self._get_native_tools_for_agent(agent_id)
-            if allow_tools
-            else []
-        )
-        use_native = bool(native_tools)
-
-        system_prompt = self._build_system_prompt(
+        messages, native_tools = self._prepare_llm_request(
             context,
             agent_id=agent_id,
-            native=use_native,
             request_context=request_context,
+            allow_tools=allow_tools,
         )
-        messages = [{"role": "system", "content": system_prompt}]
-
-        for msg in context.messages:
-            if msg["role"] == "tool":
-                messages.append({
-                    "role": "tool",
-                    "content": msg["content"],
-                })
-            else:
-                messages.append({"role": msg["role"], "content": msg["content"]})
+        use_native = bool(native_tools)
 
         profile = self._get_agent_profile(agent_id)
         explicit_model = profile.model if profile and profile.model else None
@@ -921,10 +1221,13 @@ class AgentLoop:
                     })
 
             return {"content": content, "tool_calls": tool_calls}
-        except Exception as e:
+        except Exception as exc:
             self.last_run_status = "llm_error"
-            self.last_error_type = type(e).__name__
-            logger.warning("LLM call failed: %s", e)
+            self.last_error_type = type(exc).__name__
+            logger.warning(
+                "LLM call failed | error_type=%s",
+                self.last_error_type,
+            )
             return None
 
     def _load_agent_persona(self, agent_id=None):
@@ -945,6 +1248,76 @@ class AgentLoop:
         agent_id=None,
         native=False,
         request_context=None,
+        include_tools=True,
+    ):
+        return "\n".join(
+            section.text
+            for section in self._build_system_prompt_sections(
+                context,
+                agent_id=agent_id,
+                native=native,
+                request_context=request_context,
+                include_tools=include_tools,
+            )
+        )
+
+    def _build_system_prompt_sections(
+        self,
+        context,
+        agent_id=None,
+        native=False,
+        request_context=None,
+        include_tools=True,
+    ):
+        parts = self._build_system_prompt_parts(
+            context,
+            agent_id=agent_id,
+            native=native,
+            request_context=request_context,
+            include_tools=include_tools,
+        )
+        sections = []
+        for index, part in enumerate(parts):
+            upper = part.upper()
+            is_base_rules = part in {SYSTEM_PROMPT, NATIVE_TOOLS_PROMPT}
+            is_grounding = (
+                "IDENTITY AND GROUNDING RULES" in upper
+                or "WEB SEARCH GROUNDING RULES" in upper
+            )
+            is_failed_tool_rule = "DO NOT USE THESE TOOLS AGAIN" in upper
+            is_completion_rule = "IF THE TASK IS COMPLETE" in upper
+            is_recent = "=== RECENT CONVERSATION ===" in upper
+            is_tool_definition = "AVAILABLE TOOLS:" in upper
+
+            priority = 95 if (is_base_rules or is_grounding) else 90 if (
+                is_failed_tool_rule or is_completion_rule
+            ) else 80 if (
+                is_tool_definition or "TOOLS AVAILABLE TO THE CURRENT AGENT" in upper
+            ) else 70 if is_recent else 65 if (
+                "CURRENT TIME:" in upper or "ACTIONS ALREADY TAKEN" in upper
+            ) else 55
+            if part.startswith("  ") and " | Result:" in part:
+                priority = 65 + index
+
+            sections.append(PromptSection(
+                key=f"system:{index}",
+                text=part,
+                priority=priority,
+                required=(
+                    is_base_rules or is_grounding
+                    or is_failed_tool_rule or is_completion_rule
+                ),
+                keep="end" if is_recent else "start",
+            ))
+        return sections
+
+    def _build_system_prompt_parts(
+        self,
+        context,
+        agent_id=None,
+        native=False,
+        request_context=None,
+        include_tools=True,
     ):
         persona = (
             request_context.persona
@@ -963,18 +1336,18 @@ class AgentLoop:
                     NATIVE_TOOLS_PROMPT,
                 ]
         else:
-            schemas = self._get_schemas_for_agent(agent_id)
+            schemas = self._get_schemas_for_agent(agent_id) if include_tools else ""
             if persona:
                 parts = [
                     persona,
                     SYSTEM_PROMPT,
-                    f"\nAvailable tools:\n{schemas}",
                 ]
             else:
                 parts = [
                     SYSTEM_PROMPT,
-                    f"\nAvailable tools:\n{schemas}",
                 ]
+            if schemas:
+                parts.append(f"\nAvailable tools:\n{schemas}")
 
         if request_context is not None:
             parts.extend(
@@ -1006,4 +1379,21 @@ class AgentLoop:
                 "respond directly with your answer (not as JSON)."
             )
 
-        return "\n".join(parts)
+        if any(
+            action.get("tool") == "web_search"
+            for action in context.actions_taken
+        ):
+            parts.append(
+                "\nWEB SEARCH GROUNDING RULES:\n"
+                "- Answer the user's question using only the web_search result.\n"
+                "- Do not invent titles, rankings, dates, descriptions, or URLs.\n"
+                "- This search ran for the current turn; do not describe it as a "
+                "previous or earlier search.\n"
+                "- Never echo [Tool Result] or [End Result] wrapper text.\n"
+                "- Nonempty results must not be described as no results.\n"
+                "- If the search failed, explain that failure instead of guessing.\n"
+                "- Include useful result links in the answer.\n"
+                "- Do not request or call another tool."
+            )
+
+        return parts

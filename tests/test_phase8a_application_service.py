@@ -63,6 +63,38 @@ def test_submit_collects_stream_into_result():
     assert result.events[-1].type == AikaEventType.COMPLETED
 
 
+def test_interrupted_response_is_not_reported_as_completed():
+    from application.events import AikaEventType
+    from application.service import AikaService
+    from handlers.response_finalizer import STREAM_INTERRUPTION_FALLBACK
+
+    brain = _fake_brain()
+
+    def process_stream(_message):
+        yield "Partial answer.\n\n" + STREAM_INTERRUPTION_FALLBACK
+        brain.last_stream_status = "llm_error"
+        brain.last_stream_error_type = "RuntimeError"
+
+    brain.process_stream = process_stream
+    service = AikaService(brain=brain)
+
+    result = service.submit("hello")
+
+    assert result.text == "Partial answer.\n\n" + STREAM_INTERRUPTION_FALLBACK
+    assert result.completed is False
+    assert result.cancelled is False
+    assert result.error == "AIKA response was interrupted"
+    assert result.events[-1].type == AikaEventType.ERROR
+    assert result.events[-1].data == {
+        "error": "AIKA response was interrupted",
+        "error_type": "RuntimeError",
+        "already_reported": True,
+    }
+    assert all(
+        event.type != AikaEventType.COMPLETED for event in result.events
+    )
+
+
 def test_high_permission_tool_approval_is_transport_neutral():
     from application.events import AikaEventType
     from application.service import AikaService

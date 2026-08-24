@@ -7,7 +7,8 @@ logger = logging.getLogger(__name__)
 
 CATEGORIES = {
     "database": ["database_url"],
-    "llm": ["chat_model", "embedding_model", "ollama_host", "llm_timeout",
+    "llm": ["chat_model", "embedding_model", "embedding_dimension",
+            "ollama_host", "llm_timeout",
             "model_router_long_message_words",
             "model_router_complex_question_words",
             "model_router_escalation_iteration",
@@ -51,6 +52,8 @@ CATEGORIES = {
 STARTUP_ONLY_SETTINGS = {
     "background_max_workers",
     "background_max_pending",
+    "embedding_model",
+    "embedding_dimension",
 }
 
 
@@ -181,11 +184,16 @@ class ConfigHandler:
             self._notify_refresh(changed_keys={key})
         logger.info("Setting %s changed: %s -> %s", key, old, typed)
 
-        suffix = (
-            " Use !save, then restart AIKA to apply."
-            if key in STARTUP_ONLY_SETTINGS
-            else " Use !save to persist."
-        )
+        if key in {"embedding_model", "embedding_dimension"}:
+            suffix = (
+                " Use !save, then restart AIKA after verifying PostgreSQL "
+                "vector schema compatibility. Dimension changes require a "
+                "database migration."
+            )
+        elif key in STARTUP_ONLY_SETTINGS:
+            suffix = " Use !save, then restart AIKA to apply."
+        else:
+            suffix = " Use !save to persist."
         return f"{key} changed from {old} to {typed}.{suffix}"
 
     def _save(self):
@@ -245,6 +253,7 @@ class ConfigHandler:
             "database_url": "DATABASE_URL",
             "chat_model": "CHAT_MODEL",
             "embedding_model": "EMBEDDING_MODEL",
+            "embedding_dimension": "EMBEDDING_DIMENSION",
             "ollama_host": "OLLAMA_HOST",
             "llm_timeout": "LLM_TIMEOUT",
             "memory_retrieval_limit": "MEMORY_RETRIEVAL_LIMIT",
@@ -334,7 +343,7 @@ class ConfigHandler:
             "context_cross_session_conversations",
             "context_session_summaries_count", "crawl_content_max_chars",
             "file_grep_max_results", "file_search_max_results",
-            "file_scan_max_files", "llm_timeout",
+            "file_scan_max_files", "llm_timeout", "embedding_dimension",
             "job_default_max_attempts", "job_payload_max_chars",
             "job_result_max_chars", "job_retry_delay_seconds",
             "reminder_message_max_chars", "reminder_min_interval_seconds",

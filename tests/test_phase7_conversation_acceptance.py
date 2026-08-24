@@ -137,7 +137,10 @@ class ScriptedLLM:
             if "Search provider unavailable" in tool_context:
                 text = "The search provider is unavailable, so I couldn't complete that search."
             else:
-                text = "Here are five 2026 movie results from the web search."
+                text = (
+                    "Based on the returned web results, these are the five "
+                    "listed 2026 movies."
+                )
             return iter([{"message": {"content": text}}])
 
         user_message = next(
@@ -180,7 +183,11 @@ def _build_acceptance_brain():
     from tools.capabilities_tool import CapabilitiesTool
     from tools.date_time_tool import DateTimeTool
     from tools.tool_manager import ToolManager
-    from tools.web_search_tool import WebSearchTool
+    from tools.web_search_tool import (
+        PROVIDER_UNAVAILABLE_MESSAGE,
+        SEARCH_OUTCOME_PROVIDER_ERROR,
+        WebSearchTool,
+    )
 
     conversations = InMemoryConversationRepository()
     conversations.create(
@@ -210,7 +217,9 @@ def _build_acceptance_brain():
         if "unavailable" in query.lower():
             return {
                 "success": False,
-                "error": "Search provider unavailable",
+                "outcome": SEARCH_OUTCOME_PROVIDER_ERROR,
+                "results": [],
+                "error": PROVIDER_UNAVAILABLE_MESSAGE,
             }
         return {
             "success": True,
@@ -328,9 +337,10 @@ def test_reported_cli_conversation_replays_end_to_end_without_live_services():
     assert "no screenshot tool is registered" in results[3].text
     assert "date_time" in results[4].text
     assert "web_search" in results[5].text
-    assert "five 2026 movie results" in results[6].text
+    assert "Movie 1" in results[6].text
+    assert "https://example.test/movie-1" in results[6].text
     assert "we were just looking" in results[7].text.lower()
-    assert "unavailable" in results[8].text.lower()
+    assert results[8].text == "The web-search provider is currently unavailable."
     assert "conversation is still intact" in results[9].text.lower()
     assert all("first interaction" not in result.text.lower() for result in results)
 
@@ -353,18 +363,22 @@ def test_reported_cli_conversation_replays_end_to_end_without_live_services():
     assert assistant_by_user[inputs[2]].model_used is None
     assert assistant_by_user[inputs[6]].model_used == settings.chat_model
     assert assistant_by_user[inputs[7]].model_used == settings.chat_model
+    assert assistant_by_user[inputs[8]].model_used == settings.chat_model
 
     assert llm.chat_prompts
     assert all("FOREIGN SESSION SECRET" not in prompt for prompt in llm.chat_prompts)
-    assert any(
-        "Here are five 2026 movie results" in prompt
-        for prompt in llm.chat_prompts
-    )
     final_stream_calls = [
         call for call in llm.chat_calls if call.get("stream") is True
     ]
-    assert final_stream_calls
+    assert len(final_stream_calls) == 1
     assert all("tools" not in call for call in final_stream_calls)
+    assert any(
+        "Movie 1" in "\n".join(
+            str(message.get("content", ""))
+            for message in call["messages"]
+        )
+        for call in final_stream_calls
+    )
 
 
 def test_camera_unavailable_path_is_explicit_and_does_not_launch_anything():
@@ -420,6 +434,6 @@ def test_mocked_main_cli_replays_reported_sequence_with_visible_outputs():
     assert "Monday, August 24, 2026" in rendered
     assert "Opened camera" in rendered
     assert "no screenshot tool is registered" in rendered
-    assert "five 2026 movie results" in rendered
+    assert "Movie 1" in rendered
     assert "We were just looking" in rendered
     assert "first interaction" not in rendered.lower()

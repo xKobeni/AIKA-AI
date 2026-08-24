@@ -56,6 +56,13 @@ class ToolHandler:
             result
         )
 
+        if (
+            tool_request.tool_name == "web_search"
+            and isinstance(result, dict)
+            and not result.get("results")
+        ):
+            return display_result
+
         response = (
             self.tool_response_handler
             .generate_response(
@@ -127,8 +134,8 @@ class ToolHandler:
                 return "\n\n".join(lines)
 
             return result.get(
-                "error",
-                "No search results found."
+                "message",
+                result.get("error", "No matching results were found.")
             )
 
         if tool_name == "web_crawl":

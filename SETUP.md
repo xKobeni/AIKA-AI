@@ -124,6 +124,7 @@ Required variables:
 | `FAST_MODEL` | `qwen2.5:3b` | Fast model for simple tasks (greetings, intent classification) |
 | `SMART_MODEL` | `llama3:8b` | Smart model for complex tasks (analysis, code writing) |
 | `EMBEDDING_MODEL` | `nomic-embed-text` | Ollama model for embeddings |
+| `EMBEDDING_DIMENSION` | `768` | Startup-only vector size; must match the PostgreSQL schema |
 | `OLLAMA_HOST` | `http://localhost:11434` | Ollama server URL |
 | `DATABASE_URL` | `postgresql://postgres:1234@localhost:5432/AIKA_DB` | PostgreSQL connection string |
 | `TOOL_CALLING_ENABLED` | `true` | Enable LLM-driven tool calling |
@@ -139,7 +140,7 @@ Optional variables:
 | `AUDIT_LOG_ENABLED` | `true` | Log all tool calls to audit file |
 | `AUDIT_LOG_PATH` | `logs/audit.log` | Path to audit log file |
 | `PROTECTED_PATHS` | `.env,.git,.gitignore,*.key,*.pem,*.env` | Files/patterns blocked from write/delete |
-| `MAX_CONTEXT_TOKENS` | `6000` | Approximate budget for the complete assembled chat prompt |
+| `MAX_CONTEXT_TOKENS` | `6000` | Conservative budget for each complete Ollama request, including messages and tool schemas |
 | `SESSION_LIST_LIMIT` | `50` | Maximum sessions fetched for one session-list request |
 | `MODEL_ROUTER_LONG_MESSAGE_WORDS` | `20` | Word count above which chat uses the smart model |
 | `MODEL_ROUTER_COMPLEX_QUESTION_WORDS` | `12` | Question length above which chat uses the smart model |
@@ -160,6 +161,8 @@ Optional variables:
 
 > **Security note:** `.env` is git-ignored. Never commit secrets to the repository.
 > Safe shell execution and public-network-only crawling are enabled by default.
+> Embedding model or dimension changes require an AIKA restart. A dimension
+> other than `768` also requires an explicit PostgreSQL vector-schema migration.
 > Windows Registry, Start Menu, and UWP discovery require Windows; `pywin32`
 > is conditionally installed only on that platform.
 

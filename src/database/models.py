@@ -19,11 +19,12 @@ from sqlalchemy.orm import (
 from datetime import datetime, timezone
 
 from database.base import Base
+from database.embedding_compatibility import SCHEMA_EMBEDDING_DIMENSION
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy.dialects.postgresql import JSONB
 
-EMBEDDING_DIMENSION = 768
+EMBEDDING_DIMENSION = SCHEMA_EMBEDDING_DIMENSION
 
 class Memory(Base):
 

@@ -1,5 +1,6 @@
 from database.db import db_session
-from database.models import Conversation
+from database.embedding_compatibility import validate_embedding_vector
+from database.models import Conversation, EMBEDDING_DIMENSION
 from sqlalchemy import func
 from config.settings import settings
 
@@ -16,6 +17,13 @@ class ConversationRepository:
     def create(self, role, content, session_id=None, tool_used=None,
                embedding=None, intent=None, model_used=None,
                response_time_ms=None, token_count=None, agent_id=None):
+
+        validate_embedding_vector(
+            embedding,
+            EMBEDDING_DIMENSION,
+            name="conversation embedding",
+            allow_none=True,
+        )
 
         with db_session() as db:
 
@@ -74,6 +82,12 @@ class ConversationRepository:
 
     def semantic_search(self, query_embedding, limit=5, agent_id=None):
 
+        validate_embedding_vector(
+            query_embedding,
+            EMBEDDING_DIMENSION,
+            name="conversation query embedding",
+        )
+
         with db_session() as db:
 
             query = (
@@ -92,6 +106,12 @@ class ConversationRepository:
             return query.all()
 
     def search_across_sessions(self, query_embedding, current_session_id, limit=5, agent_id=None):
+
+        validate_embedding_vector(
+            query_embedding,
+            EMBEDDING_DIMENSION,
+            name="cross-session query embedding",
+        )
 
         with db_session() as db:
 

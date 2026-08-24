@@ -177,7 +177,7 @@ def test_app_launcher_does_not_use_shell_for_uwp_fallback():
     ) as popen:
         mock_settings.app_launcher_enabled = True
         popen.side_effect = [FileNotFoundError(), Mock()]
-        result = tool.execute("package")
+        result = tool.execute("camera")
 
     assert result["success"] is True
     assert popen.call_args_list[-1].args[0] == [
