@@ -5,7 +5,11 @@ from typing import Iterator
 from config.settings import settings
 from brain.context_manager import _count_tokens
 from brain.request_context import RequestContextBuilder
-from handlers.response_finalizer import ResponseFinalizer
+from handlers.response_finalizer import (
+    GENERATION_ERROR_FALLBACK,
+    ResponseFinalizer,
+    ensure_visible_response,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -368,8 +372,11 @@ class ChatHandler:
                 model=use_model
             )
         except Exception as e:
-            logger.error("LLM generation failed: %s", e)
-            return f"I'm having trouble generating a response right now. Please try again. ({e})"
+            logger.error(
+                "LLM generation failed: %s", type(e).__name__
+            )
+            response = GENERATION_ERROR_FALLBACK
+        response = ensure_visible_response(response)
         t_llm = time.time() - t0
 
         # -------------------------
@@ -514,11 +521,19 @@ class ChatHandler:
                 response_chunks.append(chunk)
                 yield chunk
         except Exception as e:
-            logger.error("LLM stream failed: %s", e)
-            yield f"I'm having trouble generating a response right now. Please try again. ({e})"
-            return
+            logger.error("LLM stream failed: %s", type(e).__name__)
+            prefix = "\n\n" if any(
+                str(chunk or "").strip() for chunk in response_chunks
+            ) else ""
+            failure_chunk = prefix + GENERATION_ERROR_FALLBACK
+            response_chunks.append(failure_chunk)
+            yield failure_chunk
 
         response = "".join(response_chunks)
+        visible_response = ensure_visible_response(response)
+        if not response.strip():
+            response = visible_response
+            yield response
         t_llm = time.time() - t0
 
         metrics = self._model_metrics(prompt, response, t_llm)

@@ -37,10 +37,14 @@ RULES:
 - Base your answer on the Tool Result — it's your source of truth for facts.
 - Present the data naturally with warmth and conversational framing.
 - Never invent information. If the result is empty, say so honestly.
-- Respond concisely but with genuine emotion and personality."""
+- Respond concisely with warmth and a transparent AI identity.
+- Do not claim feelings, personal experiences, or successful actions that the Tool Result does not confirm."""
 
         try:
             return self.llm.generate(prompt)
         except Exception as e:
-            logger.error("LLM generation failed in tool response: %s", e)
-            return f"Here's what the {tool_result} tool returned: {tool_result}"
+            logger.error(
+                "LLM generation failed in tool response: %s",
+                type(e).__name__,
+            )
+            return f"Here is what {tool_name} returned: {tool_result}"

@@ -4,6 +4,19 @@ from models.response_metadata import ResponseMetadata
 
 logger = logging.getLogger(__name__)
 
+EMPTY_RESPONSE_FALLBACK = (
+    "I couldn't generate a response just now. Please try again."
+)
+GENERATION_ERROR_FALLBACK = (
+    "I'm having trouble generating a response right now. Please try again."
+)
+
+
+def ensure_visible_response(response, fallback=EMPTY_RESPONSE_FALLBACK):
+    """Return response text that is safe to deliver and persist."""
+    text = str(response or "")
+    return text if text.strip() else fallback
+
 
 class ResponseFinalizer:
     """Owns response persistence, metrics, and retention for every delivery mode."""
@@ -27,6 +40,10 @@ class ResponseFinalizer:
         prompt_tokens=None,
         response_tokens=None,
     ):
+        response = ensure_visible_response(response)
+        if not isinstance(response_tokens, int) or response_tokens < 1:
+            response_tokens = max(1, len(response) // 4)
+
         response_embedding = None
         if self.embedding_service and response:
             try:

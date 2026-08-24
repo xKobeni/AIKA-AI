@@ -23,6 +23,7 @@ from handlers.tool_response_handler import ToolResponseHandler
 from handlers.tool_handler import ToolHandler
 from handlers.config_handler import ConfigHandler
 from handlers.response_finalizer import ResponseFinalizer
+from handlers.response_finalizer import ensure_visible_response
 
 from brain.context_manager import ContextManager
 from brain.request_context import RequestContextBuilder
@@ -336,6 +337,7 @@ class AikaBrain:
         intent=None,
         tool_used=None,
     ):
+        response = ensure_visible_response(response)
         finalizer = getattr(self, "response_finalizer", None)
         if finalizer is None:
             finalizer = ResponseFinalizer(
@@ -806,6 +808,7 @@ class AikaBrain:
                 intent=decision.value,
                 tool_used=self.agent_loop.last_tool_used,
             )
+            response = response_metadata.text
             self._log_agent_run(decision, response)
 
             logger.debug("Route: AGENT_LOOP (%.2fs)", time.time() - t0)
@@ -965,6 +968,11 @@ class AikaBrain:
             yield chunk
 
         response = "".join(response_chunks)
+        visible_response = ensure_visible_response(response)
+        if not response.strip():
+            response = visible_response
+            response_chunks.append(response)
+            yield response
         agent_elapsed = time.time() - agent_started
 
         response_metadata = self._finalize_agent_response(
