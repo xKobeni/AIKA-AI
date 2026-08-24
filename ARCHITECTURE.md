@@ -282,6 +282,7 @@ racing interactive use of the stateful brain.
 - **`SharedContext`** — Thread-safe workspace for orchestrated agents to share data and results.
 - **`AgentMessage`** — Typed message (task/result/handoff) for inter-agent communication.
 - **`ModelRouter`** — Automatically selects between fast (qwen2.5:3b) and smart (llama3:8b) models based on task complexity, message length, and iteration count.
+- **Runtime performance controls** — Model-routing thresholds are configurable, prompt budgeting uses conservative word/character estimates, and background response work uses bounded admission over a configurable executor. `STREAMING_ENABLED=false` routes requests through the synchronous brain path.
 - **`ToolCallParser`** — Parses LLM JSON output (fallback mode). Handles markdown fences, fixes common JSON errors, rejects unknown tools.
 - **`LLMToolRouter`** — Routes tool selection via LLM. Supports native tool calling (passes `tools=` to Ollama) with legacy JSON fallback.
 - **`ToolResultFormatter`** — Formats tool results for LLM context, with truncation and per-tool extractors.
@@ -322,6 +323,7 @@ racing interactive use of the stateful brain.
 ### Database (`src/database/`)
 - **`models.py`** — Defines memory, conversation, session, job, reminder, and orchestration persistence. Durable records carry owner, agent, and session scope where applicable.
 - **`db.py`** — Creates the engine and session factory from `DATABASE_URL`.
+- **Vector retrieval** — Memory cosine search and conversation L2 search use matching HNSW indexes. Profile selection is bounded per category, and retrieval access/profile updates are batched into one transaction each.
 - **`JobRepository`** — Owns transactional enqueue, `FOR UPDATE SKIP LOCKED` claims, progress, retry, cancellation, approval, recovery, and append-only job events.
 
 ### Tools (`src/tools/`)

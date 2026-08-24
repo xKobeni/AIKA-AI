@@ -10,7 +10,9 @@ def _count_tokens(text):
     if not text:
         return 0
     words = len(text.split())
-    return int(words * 1.3) + 1
+    word_estimate = words * 1.3
+    character_estimate = len(text) / 4
+    return int(max(word_estimate, character_estimate)) + 1
 
 
 class ContextManager:
@@ -103,11 +105,9 @@ class ContextManager:
         # Update Access Tracking
         # -------------------------
 
-        for memory in memories:
-
-            self.memory_repo.update_access(
-                memory.id
-            )
+        memory_ids = [memory.id for memory in memories]
+        if memory_ids:
+            self.memory_repo.batch_update_access(memory_ids)
 
         # -------------------------
         # Build Structured Sections

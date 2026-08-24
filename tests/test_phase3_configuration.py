@@ -57,6 +57,21 @@ def test_invalid_boolean_does_not_change_setting_or_refresh():
     refresh.assert_not_called()
 
 
+def test_background_executor_settings_require_restart():
+    from handlers.config_handler import ConfigHandler
+
+    refresh = Mock()
+    with patch("handlers.config_handler.settings") as mock_settings:
+        mock_settings.background_max_workers = 1
+        result = ConfigHandler(refresh_callback=refresh)._set_value(
+            "background_max_workers=2"
+        )
+
+    assert "restart AIKA" in result
+    assert mock_settings.background_max_workers == 2
+    refresh.assert_not_called()
+
+
 def test_high_impact_numeric_setting_rejects_nonpositive_value():
     from handlers.config_handler import ConfigHandler
 
@@ -201,6 +216,27 @@ def test_model_router_refreshes_existing_instance():
 
     assert router.fast == "new-fast"
     assert router.smart == "new-smart"
+
+
+def test_model_router_refreshes_configurable_performance_thresholds():
+    from brain.model_router import ModelRouter
+
+    with patch("brain.model_router.settings") as mock_settings:
+        mock_settings.fast_model = "fast"
+        mock_settings.smart_model = "smart"
+        mock_settings.model_router_long_message_words = 4
+        mock_settings.model_router_complex_question_words = 3
+        mock_settings.model_router_escalation_iteration = 5
+        mock_settings.model_router_complex_keywords = ["deep audit"]
+        mock_settings.model_router_tool_heavy_prefixes = ["scan then"]
+        router = ModelRouter()
+
+    assert router.select("one two three four five") == "smart"
+    assert router.select("is this question complex?") == "smart"
+    assert router.select("deep audit please") == "smart"
+    assert router.select("scan then summarize") == "smart"
+    assert router.select("hello", iteration=4) == "fast"
+    assert router.select("hello", iteration=5) == "smart"
 
 
 def test_brain_refreshes_existing_components_and_registered_tools():

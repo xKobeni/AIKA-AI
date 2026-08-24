@@ -326,8 +326,9 @@ class AikaService:
     def get_sessions(self, limit=10):
         limit = max(1, min(int(limit), 100))
         sessions = self.brain.session_repo.get_all_sessions(
-            agent_id=self.current_agent_id
-        )[:limit]
+            agent_id=self.current_agent_id,
+            limit=limit,
+        )
         return [
             {
                 "id": session.id,

@@ -35,6 +35,29 @@ class Settings:
         self.embedding_model: str = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
         self.ollama_host: str = os.getenv("OLLAMA_HOST", "http://localhost:11434")
         self.llm_timeout: int = int(os.getenv("LLM_TIMEOUT", "30"))
+        self.model_router_long_message_words: int = int(os.getenv(
+            "MODEL_ROUTER_LONG_MESSAGE_WORDS", "20"
+        ))
+        self.model_router_complex_question_words: int = int(os.getenv(
+            "MODEL_ROUTER_COMPLEX_QUESTION_WORDS", "12"
+        ))
+        self.model_router_escalation_iteration: int = int(os.getenv(
+            "MODEL_ROUTER_ESCALATION_ITERATION", "2"
+        ))
+        self.model_router_complex_keywords: list = [
+            value.strip().lower() for value in os.getenv(
+                "MODEL_ROUTER_COMPLEX_KEYWORDS",
+                "analyze,research,compare,explain why,how does,write code,"
+                "debug,refactor,summarize,plan,step by step,multi,review,"
+                "inspect,investigate,evaluate,design,architect,optimize,improve"
+            ).split(",") if value.strip()
+        ]
+        self.model_router_tool_heavy_prefixes: list = [
+            value.strip().lower() for value in os.getenv(
+                "MODEL_ROUTER_TOOL_HEAVY_PREFIXES",
+                "find and,read and,search and,check and,list and,get and"
+            ).split(",") if value.strip()
+        ]
 
         # Memory retrieval
         self.memory_retrieval_limit: int = int(os.getenv("MEMORY_RETRIEVAL_LIMIT", "8"))
@@ -63,6 +86,7 @@ class Settings:
 
         # Conversation
         self.conversation_max_count: int = int(os.getenv("CONVERSATION_MAX_COUNT", "100"))
+        self.session_list_limit: int = int(os.getenv("SESSION_LIST_LIMIT", "50"))
 
         # Durable background jobs
         self.job_worker_poll_interval: float = float(os.getenv(
@@ -144,6 +168,17 @@ class Settings:
         # Agent Loop
         self.agent_max_iterations: int = int(os.getenv("AGENT_MAX_ITERATIONS", "5"))
         self.agent_reflection_enabled: bool = os.getenv("AGENT_REFLECTION_ENABLED", "true").lower() == "true"
+        self.orchestrator_max_workers: int = int(os.getenv(
+            "ORCHESTRATOR_MAX_WORKERS", "4"
+        ))
+
+        # Background response work (startup-only executor sizing)
+        self.background_max_workers: int = int(os.getenv(
+            "BACKGROUND_MAX_WORKERS", "1"
+        ))
+        self.background_max_pending: int = int(os.getenv(
+            "BACKGROUND_MAX_PENDING", "20"
+        ))
 
         # Input Validation
         self.max_input_length: int = int(os.getenv("MAX_INPUT_LENGTH", "10000"))

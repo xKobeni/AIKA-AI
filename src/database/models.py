@@ -87,6 +87,16 @@ class Memory(Base):
         nullable=True,
         index=True
     )
+
+    __table_args__ = (
+        Index(
+            "ix_memories_embedding_hnsw",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+            postgresql_where=embedding.isnot(None),
+        ),
+    )
     
 # -----------------------------------------------------------------------------
 
@@ -154,6 +164,16 @@ class Conversation(Base):
         String(50),
         nullable=True,
         index=True
+    )
+
+    __table_args__ = (
+        Index(
+            "ix_conversations_embedding_hnsw",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_ops={"embedding": "vector_l2_ops"},
+            postgresql_where=embedding.isnot(None),
+        ),
     )
 
 # -----------------------------------------------------------------------------

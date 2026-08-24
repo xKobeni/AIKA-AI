@@ -197,7 +197,9 @@ def test_service_exposes_bounded_session_history_and_status():
     history = service.get_history(limit=1000)
     status = service.get_status(include_models=True)
 
-    brain.session_repo.get_all_sessions.assert_called_once_with(agent_id="aika")
+    brain.session_repo.get_all_sessions.assert_called_once_with(
+        agent_id="aika", limit=100
+    )
     brain.conversation_repo.get_by_session.assert_called_once_with(
         "session-1", limit=200, agent_id="aika"
     )

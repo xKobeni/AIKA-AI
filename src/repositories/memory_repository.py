@@ -1,7 +1,6 @@
 from database.db import db_session
 from database.models import Memory
-from pgvector.sqlalchemy import Vector
-from sqlalchemy import text
+from sqlalchemy import func
 from datetime import datetime, timezone
 import math
 import numpy as np
@@ -55,6 +54,59 @@ class MemoryRepository:
                 )
             return query.all()
 
+    def get_top_profile_memories(
+        self,
+        categories,
+        max_per_category,
+        agent_id=None,
+    ):
+        """Return a database-bounded profile selection for each category."""
+        categories = list(dict.fromkeys(categories or []))
+        max_per_category = int(max_per_category)
+        if not categories or max_per_category <= 0:
+            return []
+
+        with db_session() as db:
+            return self._top_profile_query(
+                db,
+                categories,
+                max_per_category,
+                agent_id=agent_id,
+            ).all()
+
+    @staticmethod
+    def _top_profile_query(
+        db,
+        categories,
+        max_per_category,
+        agent_id=None,
+    ):
+        ranked = db.query(
+            Memory.id.label("memory_id"),
+            func.row_number().over(
+                partition_by=Memory.category,
+                order_by=(
+                    Memory.profile_score.desc(),
+                    Memory.importance.desc(),
+                    Memory.access_count.desc(),
+                    Memory.id.desc(),
+                ),
+            ).label("category_rank"),
+        ).filter(Memory.category.in_(categories))
+        if agent_id:
+            ranked = ranked.filter(
+                (Memory.agent_id == agent_id)
+                | (Memory.agent_id.is_(None))
+            )
+
+        ranked = ranked.subquery()
+        return (
+            db.query(Memory)
+            .join(ranked, Memory.id == ranked.c.memory_id)
+            .filter(ranked.c.category_rank <= max_per_category)
+            .order_by(Memory.category, ranked.c.category_rank)
+        )
+
     # Memory retrieval methods
     def get_all(self, agent_id=None):
 
@@ -106,19 +158,21 @@ class MemoryRepository:
         score
     ):
 
+        self.batch_update_profile_scores({memory_id: score})
+
+    def batch_update_profile_scores(self, score_by_id):
+        """Persist profile scores in one transaction."""
+        mappings = [
+            {"id": memory_id, "profile_score": score}
+            for memory_id, score in dict(score_by_id or {}).items()
+            if memory_id is not None
+        ]
+        if not mappings:
+            return 0
+
         with db_session() as db:
-
-            memory = (
-                db.query(Memory)
-                .filter(
-                    Memory.id == memory_id
-                )
-                .first()
-            )
-
-            if memory:
-
-                memory.profile_score = score
+            db.bulk_update_mappings(Memory, mappings)
+        return len(mappings)
         
     def semantic_search(
         self,
@@ -234,20 +288,26 @@ class MemoryRepository:
         memory_id
     ):
 
+        return self.batch_update_access([memory_id])
+
+    def batch_update_access(self, memory_ids):
+        """Update access metadata for all selected memories in one query."""
+        unique_ids = list(dict.fromkeys(
+            memory_id for memory_id in (memory_ids or [])
+            if memory_id is not None
+        ))
+        if not unique_ids:
+            return 0
+
         with db_session() as db:
-
-            memory = (
+            return (
                 db.query(Memory)
-                .filter(
-                    Memory.id == memory_id
+                .filter(Memory.id.in_(unique_ids))
+                .update(
+                    {
+                        Memory.access_count: Memory.access_count + 1,
+                        Memory.last_accessed: datetime.now(timezone.utc),
+                    },
+                    synchronize_session=False,
                 )
-                .first()
             )
-
-            if memory:
-
-                memory.access_count += 1
-
-                memory.last_accessed = (
-                    datetime.now(timezone.utc)
-                )

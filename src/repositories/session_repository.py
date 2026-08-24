@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 from database.db import db_session
 from database.models import Conversation, Memory, Session
+from config.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -60,14 +61,17 @@ class SessionRepository:
                 .all()
             )
 
-    def get_all_sessions(self, agent_id=None):
+    def get_all_sessions(self, agent_id=None, limit=None):
+        if limit is None:
+            limit = settings.session_list_limit
+        limit = max(1, int(limit))
         with db_session() as db:
             query = db.query(Session).order_by(Session.last_active.desc())
             if agent_id:
                 query = query.filter(
                     (Session.agent_id == agent_id) | (Session.agent_id.is_(None))
                 )
-            return query.all()
+            return query.limit(limit).all()
 
     def get_recent_with_summaries(self, limit=5, exclude_session_id=None, agent_id=None):
         with db_session() as db:

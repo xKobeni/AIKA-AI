@@ -2,6 +2,8 @@ import os
 import time
 import logging
 from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import CancelledError
+from threading import BoundedSemaphore
 from typing import Iterator
 
 from config.settings import settings
@@ -215,16 +217,20 @@ class AikaBrain:
             self.agent_registry,
             self.agent_loop,
             llm=self.llm,
-            max_workers=4
         )
 
         # Wire orchestrator to router and agent loop
         self.router.orchestrator = self.orchestrator
         self.agent_loop._orchestrator = self.orchestrator
 
+        background_workers = max(1, settings.background_max_workers)
+        background_pending = max(1, settings.background_max_pending)
         self._executor = ThreadPoolExecutor(
-            max_workers=4,
+            max_workers=background_workers,
             thread_name_prefix="aika"
+        )
+        self._background_capacity = BoundedSemaphore(
+            background_workers + background_pending
         )
         self._closed = False
 
@@ -266,6 +272,7 @@ class AikaBrain:
             self.executor,
             self.tool_handler,
             getattr(self, "agent_loop", None),
+            getattr(self, "orchestrator", None),
         )
         for component in refreshables:
             refresh = getattr(component, "refresh_from_settings", None)
@@ -284,6 +291,50 @@ class AikaBrain:
             f" for {sorted(changed_keys)}" if changed_keys else "",
         )
 
+    def _background_task_done(self, task_name, future):
+        capacity = getattr(self, "_background_capacity", None)
+        if capacity is not None:
+            capacity.release()
+        try:
+            error = future.exception()
+        except CancelledError:
+            return
+        except Exception:
+            logger.exception("Background task status check failed: %s", task_name)
+            return
+        if error is not None:
+            logger.error(
+                "Background task failed | task=%s error_type=%s",
+                task_name,
+                type(error).__name__,
+            )
+
+    def _submit_background(self, task_name, function, *args, **kwargs):
+        if getattr(self, "_closed", False):
+            logger.warning("Background task skipped because AIKA is closed: %s", task_name)
+            return False
+
+        capacity = getattr(self, "_background_capacity", None)
+        acquired = capacity is None or capacity.acquire(blocking=False)
+        if not acquired:
+            logger.warning("Background queue is full; skipped task: %s", task_name)
+            return False
+
+        try:
+            future = self._executor.submit(function, *args, **kwargs)
+        except Exception:
+            if capacity is not None:
+                capacity.release()
+            raise
+
+        if capacity is not None:
+            future.add_done_callback(
+                lambda completed: self._background_task_done(
+                    task_name, completed
+                )
+            )
+        return True
+
     def _schedule_memory_extraction(
         self,
         user_message,
@@ -291,17 +342,15 @@ class AikaBrain:
     ):
         if source_conversation_id is None:
             return
-        if getattr(self, "_closed", False):
-            logger.warning("Memory extraction skipped because AIKA is closed")
-            return
-
-        self._executor.submit(
+        scheduled = self._submit_background(
+            "memory_extraction",
             self.memory_extractor.extract_memory,
             user_message,
             source_conversation_id=source_conversation_id,
             agent_id=self.current_agent_id
         )
-        logger.debug("Memory extraction -> background")
+        if scheduled:
+            logger.debug("Memory extraction -> background")
 
     def _complete_response(self, user_message, metadata=None, source_id=None):
         conversation_id = (
@@ -393,8 +442,10 @@ class AikaBrain:
 
     def _handle_new_session(self):
         old_session_id = self.current_session.id
-        self._executor.submit(
-            self._generate_session_summary, old_session_id
+        self._submit_background(
+            "session_summary",
+            self._generate_session_summary,
+            old_session_id,
         )
         self.current_session = self.session_repo.create(
             agent_id=self.current_agent_id
@@ -412,7 +463,9 @@ class AikaBrain:
         return matches[0], None
 
     def _handle_list_sessions(self):
-        sessions = self.session_repo.get_all_sessions()
+        sessions = self.session_repo.get_all_sessions(
+            limit=settings.session_list_limit
+        )
         if not sessions:
             return "No sessions found."
         lines = ["**Sessions:**"]
@@ -827,6 +880,10 @@ class AikaBrain:
         return response
 
     def process_stream(self, user_message) -> Iterator[str]:
+
+        if settings.streaming_enabled is False:
+            yield self.process(user_message)
+            return
 
         t0 = time.time()
 

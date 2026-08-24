@@ -13,8 +13,9 @@ class MemoryProfileBuilder:
         if max_per_category is None:
             max_per_category = 3
 
-        all_memories = self.memory_repo.get_by_categories(
+        all_memories = self.memory_repo.get_top_profile_memories(
             self.PREFERRED_CATEGORIES,
+            max_per_category=max_per_category,
             agent_id=agent_id
         )
 
@@ -27,17 +28,7 @@ class MemoryProfileBuilder:
             ]
 
             if cat_mems:
-                sorted_mems = sorted(
-                    cat_mems,
-                    key=lambda m: (
-                        m.profile_score,
-                        m.importance,
-                        m.access_count
-                    ),
-                    reverse=True
-                )
-
-                categories[cat] = sorted_mems[:max_per_category]
+                categories[cat] = cat_mems[:max_per_category]
 
         lines = []
 

@@ -5,21 +5,35 @@ from datetime import datetime
 
 from brain.shared_context import SharedContext
 from brain.agent_message import AgentMessage
+from config.settings import settings
 
 logger = logging.getLogger(__name__)
 
 TEAM_DONE_MARKER = "[TEAM_DONE]"
-MAX_TEAM_TURNS = 10
 
 
 class Orchestrator:
 
-    def __init__(self, agent_registry, agent_loop, llm=None, max_workers=4):
+    def __init__(self, agent_registry, agent_loop, llm=None, max_workers=None):
         self.agent_registry = agent_registry
         self.agent_loop = agent_loop
         self.llm = llm
-        self.max_workers = max_workers
         self._active_teams = {}
+        self._max_workers_override = max_workers
+        self.max_workers = None
+        self.max_team_turns = None
+        self.refresh_from_settings()
+
+    def refresh_from_settings(self):
+        configured_workers = (
+            self._max_workers_override
+            if self._max_workers_override is not None
+            else settings.orchestrator_max_workers
+        )
+        self.max_workers = max(1, int(configured_workers))
+        self.max_team_turns = max(
+            1, int(settings.orchestration_max_team_turns)
+        )
 
     def delegate(self, from_agent_id, task, target_agent_id, shared_context=None):
         if shared_context is None:
@@ -110,9 +124,11 @@ class Orchestrator:
 
         return results
 
-    def run_team(self, agent_ids, task, shared_context=None, max_turns=MAX_TEAM_TURNS):
+    def run_team(self, agent_ids, task, shared_context=None, max_turns=None):
         if shared_context is None:
             shared_context = SharedContext()
+        if max_turns is None:
+            max_turns = self.max_team_turns
 
         shared_context.set("task", task, agent_id="orchestrator")
         shared_context.set("team_agents", agent_ids, agent_id="orchestrator")

@@ -710,12 +710,24 @@ reschedule reminder <reminder_id> 2026-08-25T10:00:00+08:00
 | `MAX_CONTEXT_TOKENS` | `6000` | Approximate maximum for the complete assembled chat prompt |
 | `MAX_PROFILE_PER_CATEGORY` | `2` | Max profile entries per category |
 | `RECENT_CONVERSATIONS_COUNT` | `10` | Recent turns included in context |
+| `MODEL_ROUTER_LONG_MESSAGE_WORDS` | `20` | Smart-model long-message threshold |
+| `MODEL_ROUTER_COMPLEX_QUESTION_WORDS` | `12` | Smart-model question threshold |
+| `MODEL_ROUTER_ESCALATION_ITERATION` | `2` | Smart-model agent-loop escalation point |
 
 ### Conversation
 
 | Variable | Default | Description |
 |---|---|---|
 | `CONVERSATION_MAX_COUNT` | `100` | Max stored conversations before trim |
+| `SESSION_LIST_LIMIT` | `50` | Maximum sessions fetched by one list request |
+
+### Performance
+
+| Variable | Default | Description |
+|---|---|---|
+| `BACKGROUND_MAX_WORKERS` | `1` | Background extraction/summary workers; restart required |
+| `BACKGROUND_MAX_PENDING` | `20` | Maximum admitted pending background tasks; restart required |
+| `ORCHESTRATOR_MAX_WORKERS` | `4` | Synchronous parallel-agent worker limit |
 
 ### Web
 

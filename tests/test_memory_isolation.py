@@ -56,14 +56,15 @@ class TestMemoryProfileBuilderAgentId:
 
     def test_build_profile_passes_agent_id(self):
         mock_repo = MagicMock()
-        mock_repo.get_by_categories.return_value = []
+        mock_repo.get_top_profile_memories.return_value = []
 
         builder = MemoryProfileBuilder(mock_repo)
         builder.build_profile(agent_id="agent_3")
 
-        mock_repo.get_by_categories.assert_called_once()
-        call_kwargs = mock_repo.get_by_categories.call_args
+        mock_repo.get_top_profile_memories.assert_called_once()
+        call_kwargs = mock_repo.get_top_profile_memories.call_args
         assert call_kwargs[1].get("agent_id") == "agent_3"
+        assert call_kwargs[1].get("max_per_category") == 3
 
 
 class TestContextManagerAgentId:

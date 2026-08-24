@@ -176,10 +176,69 @@ def test_migration_status_excludes_already_applied_versions():
         status = MigrationRunner(engine).status()
 
     assert status["current_version"] == 1
-    assert status["latest_version"] == 5
+    assert status["latest_version"] == 6
     assert status["pending"] == [
-        MIGRATIONS[1], MIGRATIONS[2], MIGRATIONS[3], MIGRATIONS[4]
+        MIGRATIONS[1], MIGRATIONS[2], MIGRATIONS[3], MIGRATIONS[4],
+        MIGRATIONS[5],
     ]
+
+
+def test_models_declare_matching_vector_indexes():
+    from database.models import Conversation, Memory
+
+    memory_index = next(
+        index for index in Memory.__table__.indexes
+        if index.name == "ix_memories_embedding_hnsw"
+    )
+    conversation_index = next(
+        index for index in Conversation.__table__.indexes
+        if index.name == "ix_conversations_embedding_hnsw"
+    )
+
+    assert memory_index.dialect_options["postgresql"]["using"] == "hnsw"
+    assert memory_index.dialect_options["postgresql"]["ops"] == {
+        "embedding": "vector_cosine_ops"
+    }
+    assert conversation_index.dialect_options["postgresql"]["using"] == "hnsw"
+    assert conversation_index.dialect_options["postgresql"]["ops"] == {
+        "embedding": "vector_l2_ops"
+    }
+
+
+def test_vector_index_migration_blocks_unsupported_pgvector():
+    from database.migrations import (
+        MigrationBlockedError,
+        _migration_006_vector_indexes,
+    )
+
+    connection = MagicMock()
+    connection.execute.return_value.scalar.return_value = "0.4.4"
+
+    with pytest.raises(MigrationBlockedError, match="0.5.0 or newer"):
+        _migration_006_vector_indexes(connection)
+
+    assert connection.execute.call_count == 1
+
+
+def test_vector_index_migration_uses_matching_distance_operators():
+    from database.migrations import _migration_006_vector_indexes
+
+    connection = MagicMock()
+    connection.execute.return_value.scalar.return_value = "0.8.0"
+
+    _migration_006_vector_indexes(connection)
+
+    statements = [str(call.args[0]) for call in connection.execute.call_args_list]
+    assert any(
+        "ix_memories_embedding_hnsw" in statement
+        and "vector_cosine_ops" in statement
+        for statement in statements
+    )
+    assert any(
+        "ix_conversations_embedding_hnsw" in statement
+        and "vector_l2_ops" in statement
+        for statement in statements
+    )
 
 
 def test_each_migration_uses_its_own_transaction_and_records_version():

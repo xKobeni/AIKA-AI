@@ -140,6 +140,13 @@ Optional variables:
 | `AUDIT_LOG_PATH` | `logs/audit.log` | Path to audit log file |
 | `PROTECTED_PATHS` | `.env,.git,.gitignore,*.key,*.pem,*.env` | Files/patterns blocked from write/delete |
 | `MAX_CONTEXT_TOKENS` | `6000` | Approximate budget for the complete assembled chat prompt |
+| `SESSION_LIST_LIMIT` | `50` | Maximum sessions fetched for one session-list request |
+| `MODEL_ROUTER_LONG_MESSAGE_WORDS` | `20` | Word count above which chat uses the smart model |
+| `MODEL_ROUTER_COMPLEX_QUESTION_WORDS` | `12` | Question length above which chat uses the smart model |
+| `MODEL_ROUTER_ESCALATION_ITERATION` | `2` | Agent iteration that escalates to the smart model |
+| `BACKGROUND_MAX_WORKERS` | `1` | Background extraction/summary workers; restart required |
+| `BACKGROUND_MAX_PENDING` | `20` | Maximum admitted pending background tasks; restart required |
+| `ORCHESTRATOR_MAX_WORKERS` | `4` | Synchronous parallel-agent worker limit |
 | `FILE_SEARCH_MAX_RESULTS` | `20` | Maximum filename matches returned per search |
 | `FILE_SCAN_MAX_FILES` | `10000` | Maximum files inspected per search or grep request |
 | `WEB_CRAWL_MAX_WORKERS` | `4` | Maximum concurrent workers for multi-page crawling |
@@ -195,7 +202,8 @@ unused ORM agent table by renaming it to `agents_legacy`, leaving
 the durable job and job-event schema used by the managed background worker.
 Migration 4 adds durable reminder schedules and acknowledgement records.
 Migration 5 adds persistent orchestration runs, dependency-linked steps, and
-restart-safe execution state.
+restart-safe execution state. Migration 6 requires pgvector 0.5.0 or newer and
+adds HNSW indexes for memory cosine search and conversation L2 search.
 
 ---
 

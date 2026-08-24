@@ -7,14 +7,19 @@ logger = logging.getLogger(__name__)
 
 CATEGORIES = {
     "database": ["database_url"],
-    "llm": ["chat_model", "embedding_model", "ollama_host", "llm_timeout"],
+    "llm": ["chat_model", "embedding_model", "ollama_host", "llm_timeout",
+            "model_router_long_message_words",
+            "model_router_complex_question_words",
+            "model_router_escalation_iteration",
+            "model_router_complex_keywords",
+            "model_router_tool_heavy_prefixes"],
     "memory": ["memory_retrieval_limit", "memory_candidate_multiplier", "memory_min_score",
                "memory_recency_half_life_hours", "memory_sim_weight", "memory_importance_weight",
                "memory_profile_weight", "memory_access_weight", "memory_recency_weight",
                "memory_category_boost_project", "memory_category_boost_goal",
                "memory_category_boost_skill", "memory_max_per_category", "memory_validator_min_score"],
     "context": ["max_context_tokens", "max_profile_per_category", "recent_conversations_count"],
-    "conversation": ["conversation_max_count"],
+    "conversation": ["conversation_max_count", "session_list_limit"],
     "jobs": ["job_worker_poll_interval", "job_payload_max_chars",
              "job_result_max_chars", "job_default_max_attempts",
              "job_retry_delay_seconds"],
@@ -26,7 +31,9 @@ CATEGORIES = {
                       "orchestration_max_team_turns",
                       "orchestration_step_max_attempts",
                       "orchestration_job_max_attempts",
-                      "orchestration_reconcile_limit"],
+                      "orchestration_reconcile_limit",
+                      "orchestrator_max_workers"],
+    "performance": ["background_max_workers", "background_max_pending"],
     "web": ["web_search_max_results", "web_crawl_max_workers", "web_crawl_max_urls",
             "web_crawl_max_redirects", "web_crawl_timeout",
             "web_crawl_max_response_bytes", "web_crawl_allow_private_network"],
@@ -39,6 +46,11 @@ CATEGORIES = {
     "paths": ["execution_log_path", "memory_data_path", "conversation_data_path"],
     "persona": ["persona_path"],
     "logging": ["log_level", "log_format"],
+}
+
+STARTUP_ONLY_SETTINGS = {
+    "background_max_workers",
+    "background_max_pending",
 }
 
 
@@ -165,10 +177,16 @@ class ConfigHandler:
             return validation_error
 
         setattr(settings, key, typed)
-        self._notify_refresh(changed_keys={key})
+        if key not in STARTUP_ONLY_SETTINGS:
+            self._notify_refresh(changed_keys={key})
         logger.info("Setting %s changed: %s -> %s", key, old, typed)
 
-        return f"{key} changed from {old} to {typed}. Use !save to persist."
+        suffix = (
+            " Use !save, then restart AIKA to apply."
+            if key in STARTUP_ONLY_SETTINGS
+            else " Use !save to persist."
+        )
+        return f"{key} changed from {old} to {typed}.{suffix}"
 
     def _save(self):
 
@@ -311,6 +329,8 @@ class ConfigHandler:
     def _validate_value(self, key, value):
         positive_integer_settings = {
             "agent_max_iterations", "conversation_max_count",
+            "session_list_limit",
+            "background_max_workers", "background_max_pending",
             "context_cross_session_conversations",
             "context_session_summaries_count", "crawl_content_max_chars",
             "file_grep_max_results", "file_search_max_results",
@@ -325,11 +345,15 @@ class ConfigHandler:
             "orchestration_step_max_attempts",
             "orchestration_job_max_attempts",
             "orchestration_reconcile_limit",
+            "orchestrator_max_workers",
             "max_calculation_length", "max_context_tokens",
             "max_input_length", "max_profile_per_category",
             "memory_candidate_multiplier", "memory_extraction_max_per_message",
             "memory_max_per_category", "memory_recency_half_life_hours",
             "memory_retrieval_limit", "plan_top_sources_count",
+            "model_router_complex_question_words",
+            "model_router_escalation_iteration",
+            "model_router_long_message_words",
             "plan_web_search_max_results", "recent_conversations_count",
             "shell_timeout", "tool_call_max_params_length",
             "web_crawl_max_redirects", "web_crawl_max_response_bytes",

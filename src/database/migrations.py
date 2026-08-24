@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import re
 
 from sqlalchemy import inspect, text
 
@@ -48,6 +49,11 @@ def _constraint_exists(connection, name):
     return bool(connection.execute(text("""
         SELECT 1 FROM pg_constraint WHERE conname = :name
     """), {"name": name}).scalar())
+
+
+def _version_tuple(value):
+    parts = [int(part) for part in re.findall(r"\d+", str(value or ""))]
+    return tuple((parts + [0, 0, 0])[:3])
 
 
 def _migration_001_conversation_foreign_keys(connection):
@@ -523,12 +529,41 @@ def _migration_005_persistent_orchestration(connection):
         )
 
 
+def _migration_006_vector_indexes(connection):
+    extension_version = connection.execute(text("""
+        SELECT extversion
+        FROM pg_extension
+        WHERE extname = 'vector'
+    """)).scalar()
+    if extension_version is None:
+        raise MigrationBlockedError(
+            "pgvector extension is required before creating vector indexes."
+        )
+    if _version_tuple(extension_version) < (0, 5, 0):
+        raise MigrationBlockedError(
+            "pgvector 0.5.0 or newer is required for HNSW indexes; "
+            f"found {extension_version}."
+        )
+
+    connection.execute(text("""
+        CREATE INDEX IF NOT EXISTS ix_memories_embedding_hnsw
+        ON memories USING hnsw (embedding vector_cosine_ops)
+        WHERE embedding IS NOT NULL
+    """))
+    connection.execute(text("""
+        CREATE INDEX IF NOT EXISTS ix_conversations_embedding_hnsw
+        ON conversations USING hnsw (embedding vector_l2_ops)
+        WHERE embedding IS NOT NULL
+    """))
+
+
 MIGRATIONS = (
     Migration(1, "conversation lifecycle foreign keys", _migration_001_conversation_foreign_keys),
     Migration(2, "retire unused ORM agent table", _migration_002_retire_legacy_agent_table),
     Migration(3, "durable background jobs", _migration_003_durable_jobs),
     Migration(4, "durable reminders and occurrences", _migration_004_durable_reminders),
     Migration(5, "persistent orchestration runs and steps", _migration_005_persistent_orchestration),
+    Migration(6, "HNSW vector search indexes", _migration_006_vector_indexes),
 )
 
 

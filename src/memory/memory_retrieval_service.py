@@ -81,13 +81,15 @@ class MemoryRetrievalService:
             intent
         )
 
+        profile_updates = {}
         for memory in memories:
             profile_score = self._compute_profile_score(memory)
             if profile_score != memory.profile_score:
-                self.memory_repo.update_profile_score(
-                    memory.id, profile_score
-                )
+                profile_updates[memory.id] = profile_score
                 memory.profile_score = profile_score
+
+        if profile_updates:
+            self.memory_repo.batch_update_profile_scores(profile_updates)
 
         ranked = self.ranker.rank(memories, intent)
 

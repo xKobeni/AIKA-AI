@@ -89,7 +89,7 @@ class ConversationRepository:
                 .order_by(Conversation.embedding.l2_distance(query_embedding))
                 .limit(limit)
             )
-            return list(reversed(query.all()))
+            return query.all()
 
     def search_across_sessions(self, query_embedding, current_session_id, limit=5, agent_id=None):
 
@@ -109,7 +109,7 @@ class ConversationRepository:
                 .order_by(Conversation.embedding.l2_distance(query_embedding))
                 .limit(limit)
             )
-            return list(reversed(query.all()))
+            return query.all()
 
     def get_by_role(self, role, limit=10):
 
