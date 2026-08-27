@@ -87,6 +87,46 @@ def _is_stable_comparison_question(text):
     return not re.search(r"\b(?:my|our)\b", text)
 
 
+def _is_conversational_followup(text):
+    return bool(re.search(
+        r"^(?:that\s+helps\b|keep\s+it\s+short\b|"
+        r"turn\s+the\s+(?:first|second|third|\d+(?:st|nd|rd|th))\b|"
+        r"now\s+make\s+(?:that|it|the\s+(?:improved\s+)?"
+        r"(?:answer|example|response))\b|"
+        r"based\s+(?:only\s+)?on\s+(?:the\s+)?sources?\s+you\s+just\s+used\b)",
+        text,
+    ))
+
+
+def _is_supportive_advice(text):
+    emotional_state = re.search(
+        r"\b(?:overwhelmed|stuck|confused|frustrated|uncertain|"
+        r"unmotivated|burned\s+out|burnt\s+out)\b",
+        text,
+    )
+    asks_for_guidance = re.search(
+        r"\b(?:help\s+me|what\s+should\s+i|choose\s+one|next\s+step|advice)\b",
+        text,
+    )
+    return bool(emotional_state and asks_for_guidance)
+
+
+def _is_stable_analysis_or_advice(text):
+    if not re.search(
+        r"\b(?:analy[sz]e|compare|evaluate|explain|suggest|recommend)\b",
+        text,
+    ):
+        return False
+    if re.search(
+        r"\b(?:latest|current|today|newest|recent|news|release|announcement|"
+        r"20\d{2}|web|internet|source\s+link|website|url|article|page|"
+        r"file|folder|directory|repo|repository|codebase|log)\b",
+        text,
+    ):
+        return False
+    return True
+
+
 class DecisionEngine:
 
     def __init__(self, intent_classifier=None):
@@ -230,6 +270,21 @@ class DecisionEngine:
         if any(text.startswith(p) for p in orchestration_patterns):
             logger.debug("-> ORCHESTRATE")
             return Action.ORCHESTRATE
+
+        # Advice, source-grounded follow-ups, and stable conceptual analysis are
+        # conversations. They do not need the full tool loop merely because the
+        # wording asks AIKA to think carefully.
+        if _is_conversational_followup(text):
+            logger.debug("-> CHAT (conversational follow-up)")
+            return Action.CHAT
+
+        if _is_supportive_advice(text):
+            logger.debug("-> CHAT (supportive advice)")
+            return Action.CHAT
+
+        if _is_stable_analysis_or_advice(text):
+            logger.debug("-> CHAT (stable analysis/advice)")
+            return Action.CHAT
 
         # ============================
         # PLAN EXECUTION (multi-step)

@@ -13,6 +13,7 @@ from brain.reflection import ReflectionEngine
 from models.actions import Action
 from models.tool_request import ToolRequest
 from handlers.response_finalizer import STREAM_INTERRUPTION_FALLBACK
+from security.redaction import redact_sensitive
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +68,8 @@ class AgentLoop:
         llm_tool_router=None,
         model_router=None,
         agent_registry=None,
-        orchestrator=None
+        orchestrator=None,
+        skill_manager=None,
     ):
         self.decision_engine = decision_engine
         self.router = router
@@ -76,6 +78,7 @@ class AgentLoop:
         self.llm_tool_router = llm_tool_router
         self.model_router = model_router
         self.agent_registry = agent_registry
+        self.skill_manager = skill_manager
         self._orchestrator = orchestrator
         self.parser = ToolCallParser(
             tool_names=set(tool_manager.tools.keys()) if tool_manager else set()
@@ -93,6 +96,7 @@ class AgentLoop:
         self.reflection = ReflectionEngine(llm=self.llm)
         self.native_tool_calling = getattr(settings, 'native_tool_calling', True)
         self.prompt_budgeter = PromptBudgeter(settings.max_context_tokens)
+        self._last_call_used_tool_fallback = False
 
     def _reset_run_observability(self):
         self.last_model_used = None
@@ -582,6 +586,7 @@ class AgentLoop:
                 agent_id=agent_id,
                 request_context=request_context,
             )
+            used_tool_fallback = self._last_call_used_tool_fallback
 
             if response_data is None:
                 logger.debug("Agent loop: LLM call failed on iteration %d", i + 1)
@@ -589,6 +594,13 @@ class AgentLoop:
 
             llm_response = response_data.get("content", "").strip()
             tool_calls = response_data.get("tool_calls", [])
+
+            if used_tool_fallback and not tool_calls:
+                return self._synthesize_response(
+                    context,
+                    agent_id=agent_id,
+                    request_context=request_context,
+                )
 
             if not llm_response and not tool_calls:
                 logger.warning(
@@ -794,6 +806,7 @@ class AgentLoop:
                 agent_id=agent_id,
                 request_context=request_context,
             )
+            used_tool_fallback = self._last_call_used_tool_fallback
 
             if response_data is None:
                 logger.debug("Agent loop: LLM call failed on iteration %d", i + 1)
@@ -811,6 +824,15 @@ class AgentLoop:
 
             llm_response = response_data.get("content", "").strip()
             tool_calls = response_data.get("tool_calls", [])
+
+            if used_tool_fallback and not tool_calls:
+                yield from self._call_llm_stream(
+                    context,
+                    agent_id=agent_id,
+                    request_context=request_context,
+                    allow_tools=False,
+                )
+                return
 
             if not llm_response and not tool_calls:
                 logger.warning(
@@ -961,12 +983,15 @@ class AgentLoop:
         agent_id=None,
         request_context=None,
         allow_tools=True,
+        model=None,
     ):
         """Budget system context, messages, and tool schemas as one payload."""
         self.prompt_budgeter.set_limit(settings.max_context_tokens)
+        supports_tools = self._model_supports_tools(model)
+        tools_allowed = allow_tools and supports_tools is not False
         native_tools = (
             self._get_native_tools_for_agent(agent_id)
-            if allow_tools
+            if tools_allowed
             else []
         )
         use_native = bool(native_tools)
@@ -975,7 +1000,7 @@ class AgentLoop:
             agent_id=agent_id,
             native=use_native,
             request_context=request_context,
-            include_tools=allow_tools,
+            include_tools=tools_allowed,
         )
         context_messages = [
             {
@@ -999,7 +1024,7 @@ class AgentLoop:
                 agent_id=agent_id,
                 native=False,
                 request_context=request_context,
-                include_tools=allow_tools,
+                include_tools=tools_allowed,
             )
             messages, budgeted_tools = self.prompt_budgeter.budget_agent_request(
                 system_sections,
@@ -1016,24 +1041,21 @@ class AgentLoop:
             )
         return messages, budgeted_tools
 
-    def _call_llm_stream(
-        self,
-        context,
-        agent_id=None,
-        request_context=None,
-        allow_tools=True,
-        retry_empty=True,
-        empty_fallback=None,
-        required_sources=None,
-    ) -> Iterator[str]:
-        messages, native_tools = self._prepare_llm_request(
-            context,
-            agent_id=agent_id,
-            request_context=request_context,
-            allow_tools=allow_tools,
-        )
-        use_native = bool(native_tools)
+    def _model_supports_tools(self, model):
+        checker = getattr(self.llm, "supports_tools", None)
+        if not callable(checker) or not model:
+            return None
+        try:
+            return checker(model)
+        except Exception as exc:
+            logger.warning(
+                "Model capability check failed | model=%s error_type=%s",
+                model,
+                type(exc).__name__,
+            )
+            return None
 
+    def _preferred_model(self, context, agent_id=None):
         profile = self._get_agent_profile(agent_id)
         explicit_model = profile.model if profile and profile.model else None
         use_model = explicit_model or self.model
@@ -1044,9 +1066,73 @@ class AgentLoop:
                 iteration=context.iterations,
                 explicit_model=explicit_model,
             )
-            if (not explicit_model and context.actions_taken
-                    and context.actions_taken[-1].get("failed")):
+            if (
+                not explicit_model
+                and context.actions_taken
+                and context.actions_taken[-1].get("failed")
+            ):
                 use_model = self.model_router.escalate("tool failed")
+        return use_model
+
+    def _model_for_call(self, preferred_model, *, allow_tools):
+        self._last_call_used_tool_fallback = False
+        if not allow_tools or self._model_supports_tools(preferred_model) is not False:
+            return preferred_model
+
+        candidates = []
+        if self.model_router is not None:
+            candidates.append(getattr(self.model_router, "fast", None))
+        candidates.append(self.model)
+        for candidate in candidates:
+            candidate = str(candidate or "").strip()
+            if not candidate or candidate == preferred_model:
+                continue
+            if self._model_supports_tools(candidate) is False:
+                continue
+            self._last_call_used_tool_fallback = True
+            logger.info(
+                "Using tool-capable model for action selection | preferred=%s "
+                "selected=%s",
+                preferred_model,
+                candidate,
+            )
+            return candidate
+
+        logger.warning(
+            "Selected model does not support tools and no compatible fallback "
+            "was found | model=%s",
+            preferred_model,
+        )
+        return preferred_model
+
+    @staticmethod
+    def _safe_error_detail(exc):
+        detail = str(redact_sensitive(str(exc) or type(exc).__name__))
+        return detail.replace("\r", " ").replace("\n", " ")[:300]
+
+    def _call_llm_stream(
+        self,
+        context,
+        agent_id=None,
+        request_context=None,
+        allow_tools=True,
+        retry_empty=True,
+        empty_fallback=None,
+        required_sources=None,
+    ) -> Iterator[str]:
+        preferred_model = self._preferred_model(context, agent_id=agent_id)
+        use_model = self._model_for_call(
+            preferred_model,
+            allow_tools=allow_tools,
+        )
+        messages, native_tools = self._prepare_llm_request(
+            context,
+            agent_id=agent_id,
+            request_context=request_context,
+            allow_tools=allow_tools,
+            model=use_model,
+        )
+        use_native = bool(native_tools)
 
         self.last_model_used = use_model
 
@@ -1075,7 +1161,9 @@ class AgentLoop:
             self.last_run_status = "llm_error"
             self.last_error_type = type(e).__name__
             logger.warning(
-                "LLM stream call failed: %s", self.last_error_type
+                "LLM stream call failed | error_type=%s detail=%s",
+                self.last_error_type,
+                self._safe_error_detail(e),
             )
 
         if yielded_content:
@@ -1172,27 +1260,19 @@ class AgentLoop:
         request_context=None,
         allow_tools=True,
     ):
+        preferred_model = self._preferred_model(context, agent_id=agent_id)
+        use_model = self._model_for_call(
+            preferred_model,
+            allow_tools=allow_tools,
+        )
         messages, native_tools = self._prepare_llm_request(
             context,
             agent_id=agent_id,
             request_context=request_context,
             allow_tools=allow_tools,
+            model=use_model,
         )
         use_native = bool(native_tools)
-
-        profile = self._get_agent_profile(agent_id)
-        explicit_model = profile.model if profile and profile.model else None
-        use_model = explicit_model or self.model
-        if self.model_router:
-            use_model = self.model_router.select(
-                context.original_message,
-                task_type="chat",
-                iteration=context.iterations,
-                explicit_model=explicit_model,
-            )
-            if (not explicit_model and context.actions_taken
-                    and context.actions_taken[-1].get("failed")):
-                use_model = self.model_router.escalate("tool failed")
 
         self.last_model_used = use_model
 
@@ -1225,8 +1305,9 @@ class AgentLoop:
             self.last_run_status = "llm_error"
             self.last_error_type = type(exc).__name__
             logger.warning(
-                "LLM call failed | error_type=%s",
+                "LLM call failed | error_type=%s detail=%s",
                 self.last_error_type,
+                self._safe_error_detail(exc),
             )
             return None
 
@@ -1288,10 +1369,11 @@ class AgentLoop:
             is_completion_rule = "IF THE TASK IS COMPLETE" in upper
             is_recent = "=== RECENT CONVERSATION ===" in upper
             is_tool_definition = "AVAILABLE TOOLS:" in upper
+            is_active_skill = "=== ACTIVE SKILL:" in upper
 
             priority = 95 if (is_base_rules or is_grounding) else 90 if (
                 is_failed_tool_rule or is_completion_rule
-            ) else 80 if (
+            ) else 85 if is_active_skill else 80 if (
                 is_tool_definition or "TOOLS AVAILABLE TO THE CURRENT AGENT" in upper
             ) else 70 if is_recent else 65 if (
                 "CURRENT TIME:" in upper or "ACTIONS ALREADY TAKEN" in upper
@@ -1306,6 +1388,7 @@ class AgentLoop:
                 required=(
                     is_base_rules or is_grounding
                     or is_failed_tool_rule or is_completion_rule
+                    or is_active_skill
                 ),
                 keep="end" if is_recent else "start",
             ))
@@ -1353,6 +1436,13 @@ class AgentLoop:
             parts.extend(
                 request_context.prompt_sections(include_persona=False)
             )
+            if self.skill_manager is not None:
+                skill_prompt = self.skill_manager.prompt_for(
+                    session_id=request_context.session_id,
+                    agent_id=agent_id or request_context.agent_id,
+                )
+                if skill_prompt:
+                    parts.append(skill_prompt)
 
         failed_tools = [
             a["tool"] for a in context.actions_taken

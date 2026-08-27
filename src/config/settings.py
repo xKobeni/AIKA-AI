@@ -200,6 +200,16 @@ class Settings:
         self.memory_data_path: str = os.getenv("MEMORY_DATA_PATH", "data/memories")
         self.conversation_data_path: str = os.getenv("CONVERSATION_DATA_PATH", "data/conversations")
 
+        # Local declarative skills
+        self.skills_path: str = os.getenv("SKILLS_PATH", "skills")
+        self.skill_max_count: int = int(os.getenv("SKILL_MAX_COUNT", "100"))
+        self.skill_max_manifest_bytes: int = int(os.getenv(
+            "SKILL_MAX_MANIFEST_BYTES", "16384"
+        ))
+        self.skill_max_instruction_bytes: int = int(os.getenv(
+            "SKILL_MAX_INSTRUCTION_BYTES", "12000"
+        ))
+
         # OS / Shell
         self.shell_enabled: bool = os.getenv("SHELL_ENABLED", "true").lower() == "true"
         self.shell_unsafe_enabled: bool = os.getenv(

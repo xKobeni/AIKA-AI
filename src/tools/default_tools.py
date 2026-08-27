@@ -28,6 +28,8 @@ def register_default_tools(
     *,
     agent_registry=None,
     agent_id_provider=None,
+    skill_manager=None,
+    session_id_provider=None,
 ):
     tools = (
         CalculatorTool(),
@@ -58,5 +60,7 @@ def register_default_tools(
         tool_manager,
         agent_registry=agent_registry,
         agent_id_provider=agent_id_provider,
+        skill_manager=skill_manager,
+        session_id_provider=session_id_provider,
     ))
     return tool_manager

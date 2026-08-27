@@ -45,6 +45,9 @@ class AikaService:
         self._active: Optional[_Operation] = None
         self._closed = False
         self._confirmations = ConfirmationCoordinator()
+        set_execution_lock = getattr(self.brain, "set_execution_lock", None)
+        if callable(set_execution_lock):
+            set_execution_lock(self._brain_execution_lock)
         tool_manager = getattr(self.brain, "tool_manager", None)
         if tool_manager is not None:
             tool_manager.set_confirmation_handler(self._request_confirmation)

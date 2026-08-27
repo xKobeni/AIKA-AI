@@ -55,6 +55,11 @@ class DeterministicToolIntentResolver:
         r"(?:in|on)\s+(?:the\s+)?(?:web|internet)\s*[.!?]*$",
         re.IGNORECASE,
     )
+    _EXPLICIT_WEB_RESEARCH = re.compile(
+        r"^(?:can\s+you\s+|could\s+you\s+|please\s+)?"
+        r"(?:research|look\s+up)\s+(?:about\s+)?(?P<query>.+?)\s*[.!?]*$",
+        re.IGNORECASE,
+    )
     _DESKTOP_FIND_OPEN = re.compile(
         r"\bsearch\s+(?:my\s+|the\s+)?des(?:k)?top\s+and\s+open\s+"
         r"(?:the\s+)?(?P<folder>.+?)(?:\s+folder)?\s*[.!?]*$",
@@ -156,6 +161,18 @@ class DeterministicToolIntentResolver:
         if web_search:
             query = str(web_search.group("query") or text).strip(" .!?")
             return ToolRequest("web_search", {"query": query})
+        explicit_research = self._EXPLICIT_WEB_RESEARCH.match(text)
+        if explicit_research:
+            query = str(explicit_research.group("query") or "").strip(" .!?")
+            is_contextual = query.lower() in {"that", "it", "this", "this topic"}
+            is_local_target = re.search(
+                r"\b(?:file|files|folder|directory|repo|repository|codebase|"
+                r"project\s+files?|log)\b",
+                query,
+                re.IGNORECASE,
+            )
+            if query and not is_contextual and not is_local_target:
+                return ToolRequest("web_search", {"query": query})
         application = self._APPLICATION.match(text)
         if application:
             return ToolRequest(

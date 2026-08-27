@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="A minimalist interface concept for AIKA, a private local AI companion."
+    />
+    <title>AIKA — Interface Prototype</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="prototype-note" role="note">
+      <span>Interface concept</span>
+      <span class="prototype-note__detail">Sample data · no backend connected</span>
+    </div>
+
+    <div class="app-shell">
+      <aside class="sidebar" id="sidebar" aria-label="Primary navigation">
+        <div class="sidebar__top">
+          <a class="brand" href="#" aria-label="AIKA home">
+            <span class="presence-mark presence-mark--small" aria-hidden="true">
+              <span></span>
+            </span>
+            <span class="brand__name">AIKA</span>
+          </a>
+          <button class="icon-button sidebar__close" id="closeSidebar" aria-label="Close navigation">
+            ×
+          </button>
+        </div>
+
+        <button class="new-chat" id="newChatButton" type="button">
+          <span aria-hidden="true">＋</span>
+          <span>New conversation</span>
+          <kbd>Ctrl N</kbd>
+        </button>
+
+        <nav class="primary-nav" aria-label="AIKA spaces">
+          <button class="nav-item is-active" data-view="chat" type="button">
+            <span class="nav-icon" aria-hidden="true">⌁</span>
+            <span>Conversation</span>
+          </button>
+          <button class="nav-item" data-view="memory" type="button">
+            <span class="nav-icon" aria-hidden="true">◇</span>
+            <span>Memory</span>
+            <span class="nav-count">24</span>
+          </button>
+          <button class="nav-item" data-view="tasks" type="button">
+            <span class="nav-icon" aria-hidden="true">✓</span>
+            <span>Tasks</span>
+            <span class="nav-count">3</span>
+          </button>
+          <button class="nav-item" data-view="agents" type="button">
+            <span class="nav-icon" aria-hidden="true">◎</span>
+            <span>Agents</span>
+            <span class="nav-count">4</span>
+          </button>
+          <button class="nav-item" data-view="research" type="button">
+            <span class="nav-icon" aria-hidden="true">⌕</span>
+            <span>Research</span>
+          </button>
+          <button class="nav-item" data-view="library" type="button">
+            <span class="nav-icon" aria-hidden="true">▤</span>
+            <span>Library</span>
+          </button>
+          <span class="nav-divider" aria-hidden="true"></span>
+          <button class="nav-item" data-view="system" type="button">
+            <span class="nav-icon" aria-hidden="true">⌘</span>
+            <span>System</span>
+            <span class="nav-count nav-count--ready">Ready</span>
+          </button>
+          <button class="nav-item" data-view="settings" type="button">
+            <span class="nav-icon" aria-hidden="true">⚙</span>
+            <span>Settings</span>
+          </button>
+        </nav>
+
+        <div class="recent-block">
+          <div class="section-label">
+            <span>Recent</span>
+            <button class="text-button" type="button" aria-label="Search conversations">⌕</button>
+          </div>
+          <button class="recent-item is-current" type="button">
+            <span>AIKA interface direction</span>
+            <time datetime="2026-08-27">Today</time>
+          </button>
+          <button class="recent-item" type="button">
+            <span>Response quality review</span>
+            <time datetime="2026-08-24">Sun</time>
+          </button>
+          <button class="recent-item" type="button">
+            <span>Weekly project priorities</span>
+            <time datetime="2026-08-22">22 Aug</time>
+          </button>
+        </div>
+
+        <div class="sidebar__footer">
+          <button class="profile-button" type="button">
+            <span class="avatar">A</span>
+            <span class="profile-copy">
+              <strong>Adrian</strong>
+              <small>Personal workspace</small>
+            </span>
+            <span class="more" aria-hidden="true">•••</span>
+          </button>
+        </div>
+      </aside>
+
+      <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+      <main class="main-panel">
+        <header class="topbar">
+          <div class="topbar__left">
+            <button class="icon-button menu-button" id="openSidebar" aria-label="Open navigation">☰</button>
+            <div>
+              <div class="conversation-title" id="viewTitle">Conversation</div>
+              <div class="session-meta">Personal · just now</div>
+            </div>
+          </div>
+          <div class="topbar__actions">
+            <div class="local-status" title="Prototype status">
+              <span class="status-dot"></span>
+              <span>Local</span>
+            </div>
+            <button class="icon-button theme-toggle" data-theme-toggle aria-label="Switch to light mode" title="Toggle light mode">
+              <span class="theme-toggle__icon" aria-hidden="true">☼</span>
+            </button>
+            <button class="icon-button" id="toggleContext" aria-label="Toggle context panel" aria-expanded="true">
+              ⓘ
+            </button>
+          </div>
+        </header>
+
+        <section class="view is-visible" id="chatView" data-view-panel="chat">
+          <div class="conversation-scroll" id="conversationScroll">
+            <div class="conversation-content">
+              <section class="welcome" id="welcomePanel">
+                <div class="presence-mark" aria-hidden="true"><span></span></div>
+                <p class="eyebrow" id="timeGreeting">Good evening</p>
+                <h1>What are we working on?</h1>
+                <p class="welcome__copy">
+                  I’m here and caught up. We can continue something, untangle a problem, or start fresh.
+                </p>
+                <div class="suggestions" aria-label="Suggested prompts">
+                  <button class="suggestion" type="button" data-prompt="Help me plan the next step for AIKA.">
+                    <span class="suggestion__symbol" aria-hidden="true">↗</span>
+                    <span><strong>Plan the next step</strong><small>Turn an idea into a focused action</small></span>
+                  </button>
+                  <button class="suggestion" type="button" data-prompt="What do you remember about my current projects?">
+                    <span class="suggestion__symbol" aria-hidden="true">◇</span>
+                    <span><strong>Recall project context</strong><small>Surface useful memories and decisions</small></span>
+                  </button>
+                  <button class="suggestion" type="button" data-prompt="Research a topic and show me the sources.">
+                    <span class="suggestion__symbol" aria-hidden="true">⌕</span>
+                    <span><strong>Research a topic</strong><small>Explore the web with visible sources</small></span>
+                  </button>
+                </div>
+              </section>
+
+              <div class="message-thread" id="messageThread" aria-live="polite"></div>
+            </div>
+          </div>
+
+          <div class="composer-area">
+            <form class="composer" id="composerForm">
+              <textarea
+                id="messageInput"
+                rows="1"
+                maxlength="1200"
+                aria-label="Message AIKA"
+                placeholder="Message AIKA…"
+              ></textarea>
+              <div class="composer__footer">
+                <div class="composer__tools">
+                  <button class="composer-button" type="button" aria-label="Attach a file">＋</button>
+                  <button class="mode-button" type="button" title="Prototype mode selector">
+                    <span class="status-dot status-dot--soft"></span>
+                    Auto
+                    <span aria-hidden="true">⌄</span>
+                  </button>
+                </div>
+                <button class="send-button" id="sendButton" type="submit" aria-label="Send message" disabled>↑</button>
+              </div>
+            </form>
+            <p class="composer-hint">Enter to send · Shift + Enter for a new line</p>
+          </div>
+        </section>
+
+        <section class="view collection-view" id="memoryView" data-view-panel="memory">
+          <div class="collection-header">
+            <div>
+              <p class="eyebrow">Long-term context</p>
+              <h1>Memory</h1>
+              <p>What AIKA keeps in mind to make future conversations more useful.</p>
+            </div>
+            <button class="secondary-button" type="button">Manage memory</button>
+          </div>
+          <div class="collection-grid">
+            <article class="data-card data-card--wide">
+              <div class="card-label"><span>Current focus</span><span class="tag">High relevance</span></div>
+              <h2>AIKA is becoming a calm, personal desktop companion.</h2>
+              <p>The interface should prioritize conversation, visible system behavior, and honest capability reporting.</p>
+              <footer>Updated from this project · Today</footer>
+            </article>
+            <article class="data-card">
+              <div class="card-label"><span>Preference</span><span>01</span></div>
+              <h3>Incremental changes</h3>
+              <p>Prefer focused improvements over broad rewrites.</p>
+            </article>
+            <article class="data-card">
+              <div class="card-label"><span>Environment</span><span>02</span></div>
+              <h3>Private by default</h3>
+              <p>Local models and clear approval for sensitive actions.</p>
+            </article>
+            <article class="data-card">
+              <div class="card-label"><span>Style</span><span>03</span></div>
+              <h3>Minimal and intentional</h3>
+              <p>Useful structure, restrained visuals, no unnecessary noise.</p>
+            </article>
+          </div>
+        </section>
+
+        <section class="view collection-view" id="tasksView" data-view-panel="tasks">
+          <div class="collection-header">
+            <div>
+              <p class="eyebrow">Quietly in motion</p>
+              <h1>Tasks</h1>
+              <p>Plans, reminders, and longer-running work in one calm queue.</p>
+            </div>
+            <button class="secondary-button" type="button">＋ Add task</button>
+          </div>
+          <div class="view-tabs" role="tablist" aria-label="Task categories">
+            <button class="view-tab is-active" type="button" role="tab">All activity</button>
+            <button class="view-tab" type="button" role="tab">Reminders</button>
+            <button class="view-tab" type="button" role="tab">Background jobs</button>
+            <button class="view-tab" type="button" role="tab">Orchestrations</button>
+          </div>
+          <div class="task-list">
+            <article class="task-row">
+              <button class="task-check" type="button" aria-label="Mark task complete"></button>
+              <div><h3>Review the AIKA interface prototype</h3><p>Personal project · Today</p></div>
+              <span class="tag tag--active">In progress</span>
+            </article>
+            <article class="task-row">
+              <button class="task-check" type="button" aria-label="Mark task complete"></button>
+              <div><h3>Run the next response-quality evaluation</h3><p>AIKA AI · When local services are ready</p></div>
+              <span class="tag">Planned</span>
+            </article>
+            <article class="task-row">
+              <button class="task-check" type="button" aria-label="Mark task complete"></button>
+              <div><h3>Outline this week’s project priorities</h3><p>Personal · Tomorrow, 9:00 AM</p></div>
+              <span class="tag">Reminder</span>
+            </article>
+            <article class="task-row task-row--system">
+              <span class="task-kind" aria-hidden="true">↻</span>
+              <div><h3>Research and summarize memory architectures</h3><p>Durable job · 4 of 6 steps · Restarts safely</p></div>
+              <span class="tag tag--active">Running</span>
+            </article>
+            <article class="task-row task-row--system">
+              <span class="task-kind" aria-hidden="true">⋯</span>
+              <div><h3>Planner → Researcher → Writer</h3><p>Orchestration chain · Waiting for approval</p></div>
+              <span class="tag tag--warning">Approval</span>
+            </article>
+          </div>
+        </section>
+
+        <section class="view collection-view" id="agentsView" data-view-panel="agents">
+          <div class="collection-header">
+            <div>
+              <p class="eyebrow">Specialized collaborators</p>
+              <h1>Agents</h1>
+              <p>Delegate, chain, or run focused agents together while AIKA coordinates the result.</p>
+            </div>
+            <button class="secondary-button" type="button">＋ Delegate task</button>
+          </div>
+          <div class="mode-strip" aria-label="Multi-agent modes">
+            <span><i>01</i> Delegate</span>
+            <span><i>02</i> Chain</span>
+            <span><i>03</i> Parallel</span>
+            <span><i>04</i> Team</span>
+          </div>
+          <div class="agent-grid">
+            <article class="agent-card agent-card--lead">
+              <div class="agent-card__top"><span class="agent-avatar">AI</span><span class="tag tag--active">Coordinator</span></div>
+              <h2>AIKA</h2>
+              <p>Understands the request, selects the right model and tools, then coordinates the work.</p>
+              <div class="agent-meta"><span>llama3:8b</span><span>All approved tools</span></div>
+            </article>
+            <article class="agent-card">
+              <div class="agent-card__top"><span class="agent-avatar">R</span><span class="status-dot"></span></div>
+              <h3>Researcher</h3><p>Searches, crawls, ranks, and synthesizes reliable sources.</p>
+              <div class="agent-meta"><span>Research</span><span>Web + read</span></div>
+            </article>
+            <article class="agent-card">
+              <div class="agent-card__top"><span class="agent-avatar">P</span><span class="status-dot"></span></div>
+              <h3>Planner</h3><p>Breaks complex goals into practical, ordered steps.</p>
+              <div class="agent-meta"><span>Planning</span><span>Read + calculate</span></div>
+            </article>
+            <article class="agent-card">
+              <div class="agent-card__top"><span class="agent-avatar">W</span><span class="status-dot"></span></div>
+              <h3>Writer</h3><p>Turns research and working notes into clear final output.</p>
+              <div class="agent-meta"><span>Writing</span><span>Read + edit</span></div>
+            </article>
+          </div>
+          <section class="activity-panel">
+            <div class="activity-panel__header"><div><p class="context-label">Live orchestration</p><h2>AI memory systems brief</h2></div><span class="tag tag--active">3 agents</span></div>
+            <div class="orchestration-flow"><span class="is-done">Planner <i>✓</i></span><b></b><span class="is-active">Researcher <i>•••</i></span><b></b><span>Writer <i>03</i></span></div>
+          </section>
+        </section>
+
+        <section class="view collection-view" id="researchView" data-view-panel="research">
+          <div class="collection-header">
+            <div>
+              <p class="eyebrow">Source-backed exploration</p>
+              <h1>Research</h1>
+              <p>Search, crawl, rank, and synthesize multiple sources without losing the trail.</p>
+            </div>
+          </div>
+          <form class="research-composer" id="researchForm">
+            <span aria-hidden="true">⌕</span>
+            <input id="researchInput" type="text" aria-label="Research topic" placeholder="What should AIKA investigate?" />
+            <button type="submit">Research</button>
+          </form>
+          <div class="research-layout">
+            <section class="research-report">
+              <div class="report-heading"><div><p class="context-label">Latest report</p><h2 id="researchTitle">Designing long-term memory for local AI assistants</h2></div><span class="tag tag--active" id="researchStatus">Complete</span></div>
+              <p id="researchSummary">A useful memory system needs more than vector similarity. Recency, importance, user-profile relevance, session context, and transparent retrieval signals work together to produce dependable recall.</p>
+              <div class="insight-list"><span><i>01</i> Hybrid retrieval improves relevance</span><span><i>02</i> Session summaries preserve continuity</span><span><i>03</i> Visible memory use builds trust</span></div>
+            </section>
+            <aside class="sources-panel">
+              <div class="context-title-row"><p class="context-label">Ranked sources</p><span class="tag">7 sources</span></div>
+              <article><span>01</span><div><strong>Memory architecture notes</strong><small>High relevance · Primary</small></div></article>
+              <article><span>02</span><div><strong>Vector retrieval evaluation</strong><small>High relevance · Research</small></div></article>
+              <article><span>03</span><div><strong>Local assistant design patterns</strong><small>Medium relevance · Technical</small></div></article>
+              <button class="text-button source-button" type="button">View all sources →</button>
+            </aside>
+          </div>
+        </section>
+
+        <section class="view collection-view" id="libraryView" data-view-panel="library">
+          <div class="collection-header">
+            <div>
+              <p class="eyebrow">Collected knowledge</p>
+              <h1>Library</h1>
+              <p>Research, source-backed answers, notes, and generated work.</p>
+            </div>
+            <button class="secondary-button" type="button">Search library</button>
+          </div>
+          <div class="library-grid">
+            <article class="library-card"><span class="file-mark">Aa</span><div><h3>AIKA interface direction</h3><p>Design note · 4 min read</p></div></article>
+            <article class="library-card"><span class="file-mark">↗</span><div><h3>Local AI memory patterns</h3><p>Research · 7 sources</p></div></article>
+            <article class="library-card"><span class="file-mark">✓</span><div><h3>Response stabilization review</h3><p>Report · Updated Sunday</p></div></article>
+          </div>
+        </section>
+
+        <section class="view collection-view" id="systemView" data-view-panel="system">
+          <div class="collection-header system-header">
+            <div>
+              <p class="eyebrow">Complete capability map</p>
+              <h1>AIKA system</h1>
+              <p>Everything currently represented by the AIKA backend, organized as one readable control surface.</p>
+            </div>
+            <div class="system-health"><span class="status-dot"></span><div><strong>Core ready</strong><small>Prototype status</small></div></div>
+          </div>
+          <div class="capability-groups">
+            <section class="capability-group">
+              <div class="capability-group__heading"><span>01</span><div><h2>Intelligence</h2><p>Local inference and response behavior</p></div></div>
+              <div class="capability-list">
+                <article><span>Local Ollama models</span><small>Private on-device inference</small><i class="status-dot"></i></article>
+                <article><span>Streaming responses</span><small>Token-by-token final answers</small><i class="status-dot"></i></article>
+                <article><span>Native tool calling</span><small>Automatic JSON fallback</small><i class="status-dot"></i></article>
+                <article><span>Automatic model routing</span><small>Fast and smart model lanes</small><i class="status-dot"></i></article>
+                <article><span>Multi-step planning</span><small>Executable goal decomposition</small><i class="status-dot"></i></article>
+              </div>
+            </section>
+            <section class="capability-group">
+              <div class="capability-group__heading"><span>02</span><div><h2>Memory & context</h2><p>Continuity across conversations</p></div></div>
+              <div class="capability-list">
+                <article><span>Long-term vector memory</span><small>Semantic + recency + importance</small><i class="status-dot"></i></article>
+                <article><span>Automatic extraction</span><small>Preferences, facts, and projects</small><i class="status-dot"></i></article>
+                <article><span>User profile</span><small>Profile-aware context scoring</small><i class="status-dot"></i></article>
+                <article><span>Session management</span><small>Resume, summarize, and delete</small><i class="status-dot"></i></article>
+              </div>
+            </section>
+            <section class="capability-group">
+              <div class="capability-group__heading"><span>03</span><div><h2>Agents & durable work</h2><p>Coordinated and restart-safe execution</p></div></div>
+              <div class="capability-list">
+                <article><span>Multi-agent collaboration</span><small>Delegate, chain, parallel, team</small><i class="status-dot"></i></article>
+                <article><span>Durable background jobs</span><small>Retries, progress, cancellation</small><i class="status-dot"></i></article>
+                <article><span>Scheduling & reminders</span><small>One-time and recurring</small><i class="status-dot"></i></article>
+                <article><span>Persistent orchestration</span><small>Recovery and approval waits</small><i class="status-dot"></i></article>
+              </div>
+            </section>
+            <section class="capability-group">
+              <div class="capability-group__heading"><span>04</span><div><h2>Knowledge & tools</h2><p>Research, files, code, and the operating system</p></div></div>
+              <div class="capability-list capability-list--tools">
+                <article><span>Web research</span><small>Search, crawl, rank, report</small><i class="status-dot"></i></article>
+                <article><span>File workspace</span><small>Search, read, write, edit, delete</small><i class="status-dot"></i></article>
+                <article><span>OS control</span><small>Shell, apps, folders, system info</small><i class="status-dot"></i></article>
+                <article><span>Developer tools</span><small>Git operations and test runner</small><i class="status-dot"></i></article>
+                <article><span>Utility tools</span><small>Calculator and content search</small><i class="status-dot"></i></article>
+              </div>
+            </section>
+            <section class="capability-group">
+              <div class="capability-group__heading"><span>05</span><div><h2>Trust & control</h2><p>Permission, identity, configuration, and lifecycle</p></div></div>
+              <div class="capability-list">
+                <article><span>Safety approvals</span><small>High-risk actions require consent</small><i class="status-dot"></i></article>
+                <article><span>Audit & protected paths</span><small>Traceable, contained tool use</small><i class="status-dot"></i></article>
+                <article><span>Per-agent configuration</span><small>Models, persona, and tools</small><i class="status-dot"></i></article>
+                <article><span>Editable personality</span><small>Reload without restarting</small><i class="status-dot"></i></article>
+                <article><span>Managed lifecycle</span><small>Typed events and cancellation</small><i class="status-dot"></i></article>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view collection-view" id="settingsView" data-view-panel="settings">
+          <div class="collection-header">
+            <div>
+              <p class="eyebrow">Make AIKA yours</p>
+              <h1>Settings</h1>
+              <p>Prototype controls for appearance, intelligence, memory, permissions, and personality.</p>
+            </div>
+          </div>
+          <div class="settings-layout">
+            <section class="settings-card">
+              <div class="settings-card__heading"><div><h2>Appearance</h2><p>Choose the atmosphere that feels right.</p></div></div>
+              <div class="theme-choices" role="group" aria-label="Color theme">
+                <button class="theme-choice" data-theme-choice="dark" type="button"><span class="theme-preview theme-preview--dark"><i></i><b></b></span><strong>Dark</strong><small>Graphite</small></button>
+                <button class="theme-choice" data-theme-choice="light" type="button"><span class="theme-preview theme-preview--light"><i></i><b></b></span><strong>Light</strong><small>Warm paper</small></button>
+              </div>
+            </section>
+            <section class="settings-card">
+              <div class="settings-card__heading"><div><h2>Response intelligence</h2><p>How AIKA chooses and produces answers.</p></div></div>
+              <div class="setting-row"><div><strong>Automatic model routing</strong><small>Choose fast or smart model for each request</small></div><button class="switch is-on" type="button" role="switch" aria-checked="true"><span></span></button></div>
+              <div class="setting-row"><div><strong>Streaming responses</strong><small>Show the final answer as it is generated</small></div><button class="switch is-on" type="button" role="switch" aria-checked="true"><span></span></button></div>
+              <div class="setting-row"><div><strong>Native tool calling</strong><small>Use structured calls with automatic fallback</small></div><button class="switch is-on" type="button" role="switch" aria-checked="true"><span></span></button></div>
+            </section>
+            <section class="settings-card">
+              <div class="settings-card__heading"><div><h2>Memory & personality</h2><p>What AIKA retains and how it communicates.</p></div></div>
+              <div class="setting-row"><div><strong>Automatic memory</strong><small>Extract useful context from conversations</small></div><button class="switch is-on" type="button" role="switch" aria-checked="true"><span></span></button></div>
+              <button class="setting-link" type="button"><span><strong>Edit AIKA personality</strong><small>Warm, calm, thoughtful, and direct</small></span><i>→</i></button>
+              <button class="setting-link" type="button"><span><strong>Manage stored memories</strong><small>Review, search, or remove personal context</small></span><i>→</i></button>
+            </section>
+            <section class="settings-card">
+              <div class="settings-card__heading"><div><h2>Safety & privacy</h2><p>Local-first control for tools and data.</p></div><span class="tag tag--active">Protected</span></div>
+              <div class="setting-row"><div><strong>Confirm high-risk tools</strong><small>Ask before sensitive file or system actions</small></div><button class="switch is-on" type="button" role="switch" aria-checked="true"><span></span></button></div>
+              <div class="setting-row"><div><strong>Audit logging</strong><small>Keep a trace of tool operations</small></div><button class="switch is-on" type="button" role="switch" aria-checked="true"><span></span></button></div>
+              <div class="privacy-callout"><span>⌂</span><div><strong>Your AI runs locally</strong><p>Models and primary memory stay on this device. Web access is only used when a request needs it.</p></div></div>
+            </section>
+          </div>
+        </section>
+      </main>
+
+      <aside class="context-panel" id="contextPanel" aria-label="Conversation context">
+        <div class="context-heading">
+          <span>Context</span>
+          <button class="icon-button context-close" id="closeContext" aria-label="Close context panel">×</button>
+        </div>
+
+        <section class="context-section">
+          <p class="context-label">This conversation</p>
+          <h2>AIKA interface direction</h2>
+          <p class="muted">Exploring how the desktop experience can feel focused, personal, and trustworthy.</p>
+          <div class="context-stat-row"><span>Messages</span><strong id="messageCount">0</strong></div>
+          <div class="context-stat-row"><span>Started</span><strong>Just now</strong></div>
+        </section>
+
+        <section class="context-section">
+          <div class="context-title-row"><p class="context-label">In mind</p><button class="text-button">View all</button></div>
+          <div class="memory-note">
+            <span class="memory-icon" aria-hidden="true">◇</span>
+            <p>You prefer incremental fixes and clear verification before moving to the next phase.</p>
+          </div>
+        </section>
+
+        <section class="context-section">
+          <div class="context-title-row"><p class="context-label">Up next</p><button class="text-button">＋</button></div>
+          <div class="reminder-item">
+            <time><strong>28</strong><span>AUG</span></time>
+            <div><strong>Review prototype</strong><small>Tomorrow · 9:00 AM</small></div>
+          </div>
+        </section>
+
+        <section class="context-section context-section--system">
+          <p class="context-label">System</p>
+          <div class="system-row"><span><i class="status-dot"></i> AIKA is ready</span><strong>Local</strong></div>
+          <div class="system-row"><span>Model</span><strong>Auto</strong></div>
+          <div class="system-row"><span>Privacy</span><strong>On-device</strong></div>
+          <p class="sample-label">Prototype status only</p>
+        </section>
+      </aside>
+    </div>
+
+    <script src="script.js"></script>
+  </body>
+</html>

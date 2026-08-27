@@ -1,19 +1,7 @@
-from config.settings import settings
 from tools.base_tool import BaseTool
 from tools.tool_category import ToolCategory
 from tools.tool_permission import ToolPermission
-
-
-_SETTING_BY_TOOL = {
-    "app_launcher": "app_launcher_enabled",
-    "shell": "shell_enabled",
-    "file_write": "file_write_enabled",
-    "file_append": "file_write_enabled",
-    "file_edit": "file_write_enabled",
-    "file_mkdir": "file_write_enabled",
-    "file_multi_edit": "file_write_enabled",
-    "file_delete": "file_delete_enabled",
-}
+from tools.tool_availability import is_tool_runtime_enabled
 
 
 class CapabilitiesTool(BaseTool):
@@ -24,10 +12,19 @@ class CapabilitiesTool(BaseTool):
     permission = ToolPermission.LOW
     response_policy = "direct_result"
 
-    def __init__(self, tool_manager, agent_registry=None, agent_id_provider=None):
+    def __init__(
+        self,
+        tool_manager,
+        agent_registry=None,
+        agent_id_provider=None,
+        skill_manager=None,
+        session_id_provider=None,
+    ):
         self._tool_manager = tool_manager
         self._agent_registry = agent_registry
         self._agent_id_provider = agent_id_provider
+        self._skill_manager = skill_manager
+        self._session_id_provider = session_id_provider
 
     @property
     def name(self):
@@ -51,6 +48,11 @@ class CapabilitiesTool(BaseTool):
             return self._agent_id_provider()
         return None
 
+    def _active_session_id(self):
+        if callable(self._session_id_provider):
+            return self._session_id_provider()
+        return None
+
     def _available_tools(self):
         allowed = None
         agent_id = self._active_agent_id()
@@ -66,8 +68,7 @@ class CapabilitiesTool(BaseTool):
                 continue
             if allowed is not None and name not in allowed:
                 continue
-            setting_name = _SETTING_BY_TOOL.get(name)
-            if setting_name and not bool(getattr(settings, setting_name, True)):
+            if not is_tool_runtime_enabled(name):
                 continue
             available.append({
                 "name": name,
@@ -95,9 +96,48 @@ class CapabilitiesTool(BaseTool):
         lines.extend(
             f"- {item['name']}: {item['description']}" for item in tools
         )
-        return {
+        result = {
             "success": True,
             "agent_id": self._active_agent_id(),
             "tools": tools,
             "text": "\n".join(lines),
         }
+        if self._skill_manager is not None:
+            skills = self._skill_manager.status_items(
+                session_id=self._active_session_id(),
+                agent_id=self._active_agent_id(),
+            )
+            issues = [
+                {"source": issue.source, "error": issue.error}
+                for issue in self._skill_manager.registry.issues
+            ]
+            active = next(
+                (
+                    item["id"] for item in skills
+                    if item["status"] == "active"
+                ),
+                None,
+            )
+            lines.append("Installed skills:")
+            if skills:
+                lines.extend(
+                    f"- {item['id']} [{item['status']}]: {item['description']}"
+                    + (
+                        f" — {item['reason']}"
+                        if item["status"] in {"disabled", "unavailable"}
+                        else ""
+                    )
+                    for item in skills
+                )
+            else:
+                lines.append("- None")
+            if issues:
+                lines.append(f"Rejected skills: {len(issues)}")
+            lines.append(f"Active skill: {active or 'none'}")
+            result.update({
+                "skills": skills,
+                "skill_issues": issues,
+                "active_skill": active,
+                "text": "\n".join(lines),
+            })
+        return result

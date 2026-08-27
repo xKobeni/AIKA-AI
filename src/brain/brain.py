@@ -37,6 +37,9 @@ from brain.model_router import ModelRouter
 from tools.tool_manager import ToolManager
 from tools.default_tools import register_default_tools
 
+from skills.manager import SkillManager
+from skills.registry import SkillRegistry
+
 from llm.embedding_service import EmbeddingService
 
 from memory.memory_retrieval_service import (
@@ -105,11 +108,21 @@ class AikaBrain:
         
         # Tool Manager
         self.tool_manager = ToolManager()
+        self.skill_registry = SkillRegistry()
+        self.skill_manager = SkillManager(
+            self.skill_registry,
+            tool_manager=self.tool_manager,
+            agent_registry=self.agent_registry,
+        )
         register_default_tools(
             self.tool_manager,
             self.memory_retrieval_service,
             agent_registry=self.agent_registry,
             agent_id_provider=lambda: self.current_agent_id,
+            skill_manager=self.skill_manager,
+            session_id_provider=lambda: getattr(
+                getattr(self, "current_session", None), "id", None
+            ),
         )
 
         self.tool_intent_resolver = DeterministicToolIntentResolver()
@@ -182,6 +195,7 @@ class AikaBrain:
             agent_registry=self.agent_registry,
             response_finalizer=self.response_finalizer,
             request_context_builder=self.request_context_builder,
+            skill_manager=self.skill_manager,
         )
 
         # Config Handler
@@ -211,7 +225,8 @@ class AikaBrain:
             tool_manager=self.tool_manager,
             llm_tool_router=self.llm_tool_router,
             model_router=self.model_router,
-            agent_registry=self.agent_registry
+            agent_registry=self.agent_registry,
+            skill_manager=self.skill_manager,
         )
 
         # Orchestrator
@@ -234,7 +249,13 @@ class AikaBrain:
         self._background_capacity = BoundedSemaphore(
             background_workers + background_pending
         )
+        self._execution_lock = None
         self._closed = False
+
+    def set_execution_lock(self, lock):
+        if lock is not None and not hasattr(lock, "__enter__"):
+            raise TypeError("execution lock must be a context manager")
+        self._execution_lock = lock
 
     def close(self, wait=True):
         if getattr(self, "_closed", False):
@@ -275,6 +296,7 @@ class AikaBrain:
             self.tool_handler,
             getattr(self, "agent_loop", None),
             getattr(self, "orchestrator", None),
+            getattr(self, "skill_manager", None),
         )
         for component in refreshables:
             refresh = getattr(component, "refresh_from_settings", None)
@@ -463,6 +485,13 @@ class AikaBrain:
         return finalizer.finalize(response, **finalize_kwargs)
 
     def _generate_session_summary(self, session_id):
+        lock = getattr(self, "_execution_lock", None)
+        if lock is not None:
+            with lock:
+                return self._generate_session_summary_unlocked(session_id)
+        return self._generate_session_summary_unlocked(session_id)
+
+    def _generate_session_summary_unlocked(self, session_id):
         conversations = self.conversation_repo.get_by_session(
             session_id, limit=50
         )
@@ -490,6 +519,16 @@ class AikaBrain:
         )
         self.chat_handler.session_id = self.current_session.id
         return "New conversation started."
+
+    def _handle_skill_command(self, user_message):
+        manager = getattr(self, "skill_manager", None)
+        if manager is None:
+            return None
+        return manager.handle_command(
+            user_message,
+            session_id=self.current_session.id,
+            agent_id=self.current_agent_id,
+        )
 
     def _resolve_session_id(self, partial):
         matches = self.session_repo.find_by_partial_id(partial)
@@ -540,6 +579,9 @@ class AikaBrain:
         if err:
             return err
         was_current = session.id == self.current_session.id
+        manager = getattr(self, "skill_manager", None)
+        if manager is not None:
+            manager.deactivate(session.id)
         self.session_repo.delete(session.id)
         if was_current:
             self.current_session = self.session_repo.create(
@@ -750,6 +792,11 @@ class AikaBrain:
 
         cmd = user_message.lower().strip()
 
+        skill_response = self._handle_skill_command(user_message)
+        if skill_response is not None:
+            logger.debug("Route: SKILL_COMMAND (%.2fs)", time.time() - t0)
+            return skill_response
+
         if cmd == "list agents":
             response = self._handle_list_agents()
             logger.debug("Route: LIST_AGENTS (%.2fs)", time.time() - t0)
@@ -930,6 +977,11 @@ class AikaBrain:
         t0 = time.time()
 
         cmd = user_message.lower().strip()
+
+        skill_response = self._handle_skill_command(user_message)
+        if skill_response is not None:
+            yield skill_response
+            return
 
         if cmd == "list agents":
             yield self._handle_list_agents()

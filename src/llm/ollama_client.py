@@ -17,6 +17,7 @@ class OllamaClient:
     def __init__(self):
         self.client = None
         self._metrics = threading.local()
+        self._model_capabilities = {}
         self.refresh_from_settings()
 
     @staticmethod
@@ -48,6 +49,7 @@ class OllamaClient:
         self.host = settings.ollama_host
         self.timeout = settings.llm_timeout
         self.client = ollama.Client(host=self.host, timeout=self.timeout)
+        self._model_capabilities = {}
         if old_client is not None and hasattr(old_client, "close"):
             try:
                 old_client.close()
@@ -86,6 +88,44 @@ class OllamaClient:
         except Exception as e:
             logger.warning("Failed to list Ollama models: %s", e)
             return []
+
+    def get_model_capabilities(self, model=None, *, refresh=False):
+        """Return Ollama-advertised model capabilities, or None if unknown."""
+        use_model = str(model or self.model).strip()
+        if not use_model:
+            return None
+        if not refresh and use_model in self._model_capabilities:
+            return self._model_capabilities[use_model]
+        show = getattr(self.client, "show", None)
+        if not callable(show):
+            return None
+        try:
+            response = show(use_model)
+            capabilities = self._metric_value(response, "capabilities")
+            if capabilities is None:
+                return None
+            normalized = frozenset(
+                str(item).strip().lower()
+                for item in capabilities
+                if str(item).strip()
+            )
+            self._model_capabilities[use_model] = normalized
+            return normalized
+        except Exception as exc:
+            logger.warning(
+                "Could not inspect Ollama model capabilities | model=%s "
+                "error_type=%s",
+                use_model,
+                type(exc).__name__,
+            )
+            return None
+
+    def supports_tools(self, model=None):
+        """Return True/False when known, otherwise None for compatibility."""
+        capabilities = self.get_model_capabilities(model)
+        if capabilities is None:
+            return None
+        return "tools" in capabilities
 
     def generate(self, prompt):
         return self.generate_with_model(prompt, model=self.model)

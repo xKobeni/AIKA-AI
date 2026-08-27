@@ -1,5 +1,6 @@
 import time
 import logging
+import re
 from typing import Iterator
 
 from config.settings import settings
@@ -31,6 +32,7 @@ class ChatHandler:
         agent_registry=None,
         response_finalizer=None,
         request_context_builder=None,
+        skill_manager=None,
     ):
 
         self.conversation_repo = conversation_repo
@@ -43,6 +45,7 @@ class ChatHandler:
         self.session_repo = session_repo
         self.model_router = model_router
         self.agent_registry = agent_registry
+        self.skill_manager = skill_manager
         self.request_context_builder = (
             request_context_builder
             or RequestContextBuilder(
@@ -65,9 +68,11 @@ class ChatHandler:
 
     @staticmethod
     def _assemble_prompt_sections(
-        request_context, user_message, web_results_block
+        request_context, user_message, web_results_block, skill_prompt=""
     ):
         sections = list(request_context.prompt_sections())
+        if str(skill_prompt or "").strip():
+            sections.append(skill_prompt)
         if web_results_block.strip():
             sections.append(
                 "=== WEB SEARCH RESULTS (use these to answer accurately) ===\n"
@@ -122,10 +127,11 @@ class ChatHandler:
             )
             is_web_result = "=== WEB SEARCH RESULTS" in upper
             is_recent = "=== RECENT CONVERSATION ===" in upper
+            is_active_skill = "=== ACTIVE SKILL:" in upper
 
             priority = 100 if is_user_request else 95 if (
                 is_grounding or is_instructions or is_web_result
-            ) else 75 if "TOOLS AVAILABLE" in upper else 65 if index == 0 else 50
+            ) else 85 if is_active_skill else 75 if "TOOLS AVAILABLE" in upper else 65 if index == 0 else 50
             if is_recent:
                 priority = 70
             prompt_sections.append(PromptSection(
@@ -134,12 +140,20 @@ class ChatHandler:
                 priority=priority,
                 required=(
                     is_user_request or is_grounding
-                    or is_instructions or is_web_result
+                    or is_instructions or is_web_result or is_active_skill
                 ),
                 keep="end" if is_recent else "start",
             ))
 
         return self.prompt_budgeter.budget_text_sections(prompt_sections)
+
+    def _active_skill_prompt(self, agent_id):
+        if self.skill_manager is None:
+            return ""
+        return self.skill_manager.prompt_for(
+            session_id=self.session_id,
+            agent_id=agent_id,
+        )
 
     def _model_metrics(self, prompt, response, llm_seconds):
         metrics = {}
@@ -171,6 +185,13 @@ class ChatHandler:
                 return False
 
         text = user_message.lower().strip()
+
+        if re.search(
+            r"\bbased\s+(?:only\s+)?on\s+(?:the\s+)?sources?\s+"
+            r"you\s+just\s+used\b",
+            text,
+        ):
+            return False
 
         # Skip for greetings
         if text.rstrip("?!.,") in {
@@ -346,7 +367,10 @@ class ChatHandler:
         t_web = time.time() - t0
 
         sections = self._assemble_prompt_sections(
-            request_context, user_message, web_results_block
+            request_context,
+            user_message,
+            web_results_block,
+            self._active_skill_prompt(agent_id),
         )
         prompt = self._budget_prompt(sections)
 
@@ -499,7 +523,10 @@ class ChatHandler:
         t_web = time.time() - t0
 
         sections = self._assemble_prompt_sections(
-            request_context, user_message, web_results_block
+            request_context,
+            user_message,
+            web_results_block,
+            self._active_skill_prompt(agent_id),
         )
         prompt = self._budget_prompt(sections)
 
