@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="en" data-theme="twilight">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Expanded prototype for AIKA's subtle-anime Living Desk companion interface."
+    />
+    <title>AIKA — Living Desk Prototype</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="room-atmosphere" aria-hidden="true"><i></i><i></i><i></i></div>
+
+    <header class="ambient-bar">
+      <a class="aika-wordmark" href="#" aria-label="AIKA Living Desk home">
+        <span class="presence-pin" aria-hidden="true"><i></i></span>
+        <span><strong>AIKA</strong><small>living desk</small></span>
+      </a>
+
+      <div class="workspace-picker">
+        <button class="workspace-toggle" id="moreToggle" type="button" aria-expanded="false" aria-controls="moreMenu">
+          <i id="activeSpaceIcon" aria-hidden="true">◉</i>
+          <span><small>Current space</small><strong id="activeSpaceName">Together</strong></span>
+          <b aria-hidden="true">⌄</b>
+        </button>
+
+        <div class="more-menu" id="moreMenu" aria-label="Choose an AIKA space" hidden>
+          <button class="is-active" type="button" data-space="together"><i>◉</i><span><strong>Together</strong><small>Conversation</small></span></button>
+          <button type="button" data-space="memory"><i>◇</i><span><strong>Memory</strong><small>What AIKA remembers</small></span></button>
+          <button type="button" data-space="dayline"><i>⌁</i><span><strong>Dayline</strong><small>Time and reminders</small></span></button>
+          <button type="button" data-space="crew"><i>◎</i><span><strong>Crew</strong><small>Specialists</small></span></button>
+          <button type="button" data-space="research"><i>↗</i><span><strong>Research</strong><small>Sources</small></span></button>
+          <button type="button" data-space="workshop"><i>⌘</i><span><strong>Workshop</strong><small>Abilities</small></span></button>
+          <button type="button" data-space="inner"><i>◌</i><span><strong>Inner room</strong><small>Settings</small></span></button>
+        </div>
+      </div>
+
+      <div class="ambient-status">
+        <span class="local-state"><i></i> Local companion</span>
+        <span class="time-state" id="timeState">Thursday evening</span>
+        <button class="global-work-indicator" id="globalWorkIndicator" type="button" aria-label="Open AIKA's active work" hidden><i></i><span id="globalWorkText">Working</span></button>
+        <button class="rail-toggle" id="railToggle" type="button" aria-controls="awarenessRail" aria-expanded="true">
+          <span aria-hidden="true">◐</span><small>Awareness</small>
+        </button>
+        <button class="theme-switch" id="themeSwitch" type="button" aria-label="Switch to Daylight theme">
+          <span aria-hidden="true">☼</span>
+          <small>Daylight</small>
+        </button>
+      </div>
+    </header>
+
+    <main class="living-desk">
+      <section class="character-presence" data-expression="calm" data-motion="idle" aria-labelledby="characterName">
+        <div class="character-frame">
+          <span class="character-ring" aria-hidden="true"><i></i><b></b></span>
+          <img
+            id="characterPortrait"
+            src="assets/aika/expression-calm-matte.png"
+            alt="AIKA with a calm expression"
+          />
+          <img
+            class="character-motion-portrait"
+            id="characterMotionPortrait"
+            src="assets/aika/expression-talking-matte.png"
+            alt=""
+            aria-hidden="true"
+          />
+          <span class="character-fade" aria-hidden="true"></span>
+        </div>
+
+        <div class="character-caption">
+          <div>
+            <span class="state-light" aria-hidden="true"></span>
+            <p><strong id="characterName">AIKA</strong><small id="characterState">present with you</small></p>
+          </div>
+          <span class="temporary-mark">responsive expression set</span>
+        </div>
+
+        <p class="character-aside">“We can shape this slowly. The direction matters more than rushing the details.”</p>
+        <button class="expression-cycle" id="expressionCycle" type="button" aria-label="Preview AIKA expressions">
+          <span>Expression preview</span><strong id="expressionName" aria-live="polite">Calm</strong><i aria-hidden="true">↻</i>
+        </button>
+      </section>
+
+      <div class="conversation-column">
+      <nav class="conversation-tool-rail" aria-label="Conversation tools">
+        <button id="conversationNewSession" type="button" data-tooltip="New session" aria-label="New blank session">＋</button>
+        <button id="conversationHistoryToggle" type="button" data-tooltip="History" aria-label="Open conversation history" aria-expanded="false" aria-controls="sessionHistoryPanel">◷</button>
+        <button id="conversationSearchToggle" type="button" data-tooltip="Search" aria-label="Search this conversation" aria-expanded="false" aria-controls="conversationSearchPanel">⌕</button>
+        <button id="conversationSummarize" type="button" data-tooltip="Summarize" aria-label="Summarize this conversation">◇</button>
+        <span aria-hidden="true"></span>
+        <button id="conversationMoreToggle" type="button" data-tooltip="More" aria-label="More conversation tools" aria-expanded="false" aria-controls="conversationMoreMenu">•••</button>
+        <div class="conversation-more-menu" id="conversationMoreMenu" hidden>
+          <button id="workDemo" type="button"><i>⌁</i><span><strong>Preview working</strong><small>See AIKA handle a task</small></span></button>
+        </div>
+      </nav>
+      <section class="companion-pulse" aria-label="AIKA feature space">
+        <header class="pulse-heading">
+          <div>
+            <p class="section-kicker"><span></span><span id="spaceKicker">Companion pulse</span></p>
+            <time id="currentDate" datetime="2026-08-27">27 August 2026</time>
+          </div>
+          <span class="prototype-label">quiet companion space</span>
+        </header>
+
+        <section class="space-panel is-active" data-space-panel="together" aria-label="Together conversation">
+          <div class="conversation-shell" id="conversationShell">
+          <div class="conversation-search" id="conversationSearchPanel" hidden>
+            <input id="conversationSearchInput" type="search" placeholder="Search this conversation" aria-label="Search this conversation" />
+            <span id="conversationSearchStatus">Type to search</span>
+            <button id="conversationSearchClose" type="button" aria-label="Close conversation search">×</button>
+          </div>
+          <aside class="session-history-panel" id="sessionHistoryPanel" aria-labelledby="sessionHistoryTitle" aria-hidden="true">
+            <header class="session-history-header">
+              <div>
+                <p>SHARED PAGES</p>
+                <h2 id="sessionHistoryTitle">Conversations</h2>
+                <span>Return to something we were shaping together.</span>
+              </div>
+              <button id="sessionHistoryClose" type="button" aria-label="Close conversation history">×</button>
+            </header>
+            <div class="session-history-overview">
+              <p><strong id="sessionHistoryCount">0</strong><span>pages kept on this device</span></p>
+              <button id="sessionHistoryNew" type="button"><span aria-hidden="true">＋</span>New page</button>
+            </div>
+            <div class="session-history-controls">
+              <label>
+                <span class="sr-only">Search conversation history</span>
+                <input id="sessionHistorySearch" type="search" placeholder="Search shared pages" />
+              </label>
+              <div class="session-history-filters" aria-label="Filter conversation history">
+                <button class="is-active" type="button" data-history-filter="all">All <span></span></button>
+                <button type="button" data-history-filter="pinned">Kept <span></span></button>
+                <button type="button" data-history-filter="archived">Archive <span></span></button>
+              </div>
+            </div>
+            <div class="session-history-list" id="sessionHistoryList"></div>
+            <div class="session-history-empty" id="sessionHistoryEmpty" hidden>
+              <i aria-hidden="true">◌</i>
+              <strong>No pages here yet.</strong>
+              <span>Try another view or begin a new conversation.</span>
+            </div>
+          </aside>
+          <div class="conversation-journal" id="conversationJournal" aria-live="polite" aria-relevant="additions">
+          <div class="conversation-day" id="conversationDay"><span>Today</span><i></i><time id="conversationDayTime">now</time></div>
+          <div class="empty-session-state" id="emptySessionState" hidden>
+            <p class="empty-session-kicker"><span aria-hidden="true"></span><span id="emptySessionKicker">Here, now</span></p>
+            <h1>We can begin in the middle.</h1>
+            <p class="empty-session-copy" id="emptySessionCopy">A half-formed thought is enough. I kept our earlier pages nearby.</p>
+            <footer><i aria-hidden="true"></i><span>AIKA is listening</span></footer>
+          </div>
+          <button class="older-turns-toggle" id="olderTurnsToggle" type="button" hidden></button>
+
+          <section class="work-presence" id="workPresence" aria-labelledby="workTitle" hidden>
+            <header>
+              <span class="work-mark" aria-hidden="true"><i></i></span>
+              <p><small>AIKA is working</small><strong id="workTitle">Shaping your companion prototype</strong></p>
+              <time id="workTimer">00:00</time>
+            </header>
+            <p class="work-sentence" id="workSentence">I’m understanding what should change before touching the interface.</p>
+            <ol class="work-steps">
+              <li data-work-step="0"><i></i><span><strong>Understand the request</strong><small>Reading the conversation and current design</small></span></li>
+              <li data-work-step="1"><i></i><span><strong>Shape the approach</strong><small>Choosing the smallest useful change</small></span></li>
+              <li data-work-step="2"><i></i><span><strong>Build the interaction</strong><small>Updating the prototype carefully</small></span></li>
+              <li data-work-step="3"><i></i><span><strong>Check the result</strong><small>Making sure nothing else was disturbed</small></span></li>
+            </ol>
+            <details class="work-details">
+              <summary>View work details <span>＋</span></summary>
+              <div><span>index.html</span><span>styles.css</span><span>script.js</span><small>Prototype activity only · no real tools are running</small></div>
+            </details>
+            <footer>
+              <span id="workHonesty">Working locally · simulated prototype</span>
+              <button id="workResume" type="button" hidden>Continue</button>
+              <button id="workStop" type="button">Stop</button>
+            </footer>
+          </section>
+
+          <article class="conversation-turn aika-turn work-result-turn" id="workResultTurn" hidden>
+            <span class="aika-turn-mark aika-turn-mark--finished" aria-hidden="true"><i></i></span>
+            <div><small>Finished</small><h2>The interaction is ready to review.</h2><p>I kept the conversation visible and left the deeper work details folded away.</p></div>
+            <div class="artifact-preview">
+              <header><span>Prototype result preview</span><strong>3 files represented</strong></header>
+              <div class="artifact-comparison"><span><small>Before</small>Static response</span><i>→</i><span><small>After</small>Living conversation</span></div>
+              <ul><li><span>index.html</span><small>Conversation structure</small></li><li><span>styles.css</span><small>Desktop interaction states</small></li><li><span>script.js</span><small>Prototype behavior</small></li></ul>
+              <footer><span><i></i> Structure example</span><span><i></i> Script example</span><span><i></i> Local result preview</span></footer>
+            </div>
+            <footer><button type="button" data-result-action="view">See result</button><button type="button" data-result-action="review">Review changes</button></footer>
+          </article>
+          </div>
+          </div>
+
+          <button class="jump-latest" id="jumpLatest" type="button" hidden>↓ Latest</button>
+
+        </section>
+
+        <section class="space-panel memory-space" data-space-panel="memory" aria-labelledby="memoryTitle">
+          <header class="space-intro"><p>What helps me understand you</p><h1 id="memoryTitle">Memory Garden</h1><span>Only the memories that matter right now.</span></header>
+          <div class="memory-garden">
+            <button class="memory-bloom memory-bloom--hero" type="button" data-memory-detail="This project thread connects the design direction, approved plan, and current prototype review."><small>Active project</small><strong>AIKA companion interface</strong><span>8 conversations · high relevance</span></button>
+            <button class="memory-bloom" type="button" data-memory-detail="You prefer focused, incremental changes with clear review gates before later phases."><small>How you work</small><strong>Incremental over rushed</strong><span>Preference · frequently useful</span></button>
+            <button class="memory-bloom" type="button" data-memory-detail="AIKA should state what is known, what was inferred, and what still needs verification."><small>Trust</small><strong>Honesty before confidence</strong><span>Profile context · always active</span></button>
+            <button class="memory-bloom" type="button" data-memory-detail="The newest session summary preserves this interface conversation without loading unlimited history."><small>Continuity</small><strong>Current session summary</strong><span>12 messages · today</span></button>
+          </div>
+          <div class="memory-explanation" id="memoryExplanation"><span>◇</span><p>Select a memory to see why AIKA may use it.</p><button type="button">Search all memory</button></div>
+        </section>
+
+        <section class="space-panel dayline-space" data-space-panel="dayline" aria-labelledby="daylineTitle">
+          <header class="space-intro space-intro--split"><div><p>Your day at a glance</p><h1 id="daylineTitle">Dayline</h1></div><button class="small-action" type="button">＋ Add</button></header>
+          <div class="dayline-track">
+            <article class="dayline-event is-current"><time>Now</time><i></i><div><small>In focus</small><h2>Review the expanded Living Desk</h2><p>Current session · companion design</p></div><span>active</span></article>
+            <article class="dayline-event"><time>9:00</time><i></i><div><small>Tomorrow</small><h2>Prototype review reminder</h2><p>One-time · Asia/Manila · waiting</p></div><span>reminder</span></article>
+            <article class="dayline-event"><time>04/06</time><i></i><div><small>Durable background job</small><h2>Response-quality evaluation</h2><p>Paused safely · retry and cancellation available</p></div><span>paused</span></article>
+            <article class="dayline-event"><time>Next</time><i></i><div><small>Persistent orchestration</small><h2>Planner → Researcher → Writer</h2><p>Restart-safe · waiting for protected-action approval</p></div><span class="needs-attention">approval</span></article>
+          </div>
+        </section>
+
+        <section class="space-panel crew-space" data-space-panel="crew" aria-labelledby="crewTitle">
+          <header class="space-intro"><p>Help when the work grows</p><h1 id="crewTitle">Crew</h1><span>Invite one specialist only when it is useful.</span></header>
+          <div class="crew-orbit">
+            <article class="crew-member crew-member--aika"><span>AI</span><div><small>Coordinator</small><h2>AIKA</h2><p>Holds context, routes work, and keeps tool use visible.</p></div><em>all approved tools</em></article>
+            <article class="crew-member"><span>R</span><div><small>Research</small><h2>Researcher</h2><p>Search, crawl, read, and rank sources.</p></div><button type="button" data-invite-agent="Researcher">Invite</button></article>
+            <article class="crew-member"><span>P</span><div><small>Planning</small><h2>Planner</h2><p>Turns complex goals into practical sequences.</p></div><button type="button" data-invite-agent="Planner">Invite</button></article>
+            <article class="crew-member"><span>W</span><div><small>Writing</small><h2>Writer</h2><p>Shapes working material into clear output.</p></div><button type="button" data-invite-agent="Writer">Invite</button></article>
+          </div>
+          <div class="crew-modes"><span>Delegate</span><i></i><span>Chain</span><i></i><span>Parallel</span><i></i><span>Team</span></div>
+        </section>
+
+        <section class="space-panel research-space" data-space-panel="research" aria-labelledby="researchTitle">
+          <header class="space-intro"><p>Follow the evidence</p><h1 id="researchTitle">Research Trail</h1><span>Answers with their sources kept nearby.</span></header>
+          <form class="research-field" id="researchForm"><input id="researchInput" type="text" placeholder="What should we investigate?" aria-label="Research topic" /><button type="submit">Follow thread ↗</button></form>
+          <div class="research-trail">
+            <article class="research-finding"><small>Latest finding</small><h2 id="researchFindingTitle">Reliable memory needs more than vector similarity.</h2><p id="researchFindingBody">Recency, importance, profile relevance, and session context improve which memories should surface.</p><footer><span>7 sources</span><span>structured report</span><span>sample only</span></footer></article>
+            <aside><p>Ranked sources</p><article><i>01</i><span><strong>Memory architecture notes</strong><small>Primary · high relevance</small></span></article><article><i>02</i><span><strong>Retrieval evaluation</strong><small>Research · high relevance</small></span></article><article><i>03</i><span><strong>Local assistant patterns</strong><small>Technical · medium relevance</small></span></article></aside>
+          </div>
+        </section>
+
+        <section class="space-panel workshop-space" data-space-panel="workshop" aria-labelledby="workshopTitle">
+          <header class="space-intro space-intro--split"><div><p>Abilities, on demand</p><h1 id="workshopTitle">Workshop</h1></div><span class="permission-key"><i></i> permission aware</span></header>
+          <div class="tool-shelves">
+            <details><summary><span>Files</span><small>10 abilities</small><i>＋</i></summary><div><button>Search</button><button>Read</button><button>Read range</button><button>Write</button><button>Edit</button><button>Multi-edit</button><button>Append</button><button>Grep</button><button>Make folder</button><button class="tool-high">Delete · confirm</button></div></details>
+            <details><summary><span>Your computer</span><small>4 abilities</small><i>＋</i></summary><div><button class="tool-high">Shell · confirm</button><button>Launch app</button><button>Browse folder</button><button>System info</button></div></details>
+            <details><summary><span>Developer</span><small>3 abilities</small><i>＋</i></summary><div><button>Git</button><button>Run tests</button><button>Calculator</button></div></details>
+            <details><summary><span>Knowledge</span><small>3 abilities</small><i>＋</i></summary><div><button>Web search</button><button>Web crawl</button><button>Memory search</button></div></details>
+          </div>
+          <div class="safety-note"><span>⌁</span><p><strong>Protected by default.</strong> High-risk actions require approval, use contained paths, and leave an audit trail.</p></div>
+        </section>
+
+        <section class="space-panel inner-space" data-space-panel="inner" aria-labelledby="innerTitle">
+          <header class="space-intro"><p>Transparent underneath</p><h1 id="innerTitle">Inner Room</h1><span>The deeper controls stay folded away.</span></header>
+          <div class="inner-status"><span><i></i><strong>Core ready</strong><small>prototype state</small></span><span><strong>Fast model</strong><small>qwen2.5:3b</small></span><span><strong>Smart model</strong><small>llama3:8b</small></span><span><strong>Privacy</strong><small>local-first</small></span></div>
+          <div class="inner-settings">
+            <details><summary><span><strong>Response intelligence</strong><small>Models and streaming</small></span><i>＋</i></summary><div><button class="setting-toggle is-on" type="button" role="switch" aria-checked="true"><span><strong>Automatic model routing</strong><small>Fast or smart lane per request</small></span><i></i></button><button class="setting-toggle is-on" type="button" role="switch" aria-checked="true"><span><strong>Streaming responses</strong><small>Answer appears as generated</small></span><i></i></button><button class="setting-toggle is-on" type="button" role="switch" aria-checked="true"><span><strong>Native tool calling</strong><small>Fallback when unsupported</small></span><i></i></button></div></details>
+            <details><summary><span><strong>Identity & continuity</strong><small>Personality and memory</small></span><i>＋</i></summary><div><button class="setting-link"><span><strong>AIKA personality</strong><small>Calm, friendly, honest</small></span><i>→</i></button><button class="setting-link"><span><strong>Memory & sessions</strong><small>Context and retention</small></span><i>→</i></button><button class="setting-link"><span><strong>Agent profiles</strong><small>Persona and allowed tools</small></span><i>→</i></button></div></details>
+            <details><summary><span><strong>Trust & lifecycle</strong><small>Safety and control</small></span><i>＋</i></summary><div><button class="setting-toggle is-on" type="button" role="switch" aria-checked="true"><span><strong>Confirm high-risk tools</strong><small>Approval stays fail-closed</small></span><i></i></button><button class="setting-toggle is-on" type="button" role="switch" aria-checked="true"><span><strong>Audit logging</strong><small>Actions remain traceable</small></span><i></i></button><button class="setting-link"><span><strong>Runtime lifecycle</strong><small>Cancellation and clean shutdown</small></span><i>→</i></button></div></details>
+            <details><summary><span><strong>Voice & conversation</strong><small>Speech, captions, and interruption</small></span><i>＋</i></summary><div class="voice-preferences">
+              <label><span><strong>AIKA voice</strong><small>Browser voices available on this device</small></span><select id="voicePreference"><option value="">System default</option></select></label>
+              <label><span><strong>Speaking speed</strong><small id="voiceRateValue">0.95×</small></span><input id="voiceRate" type="range" min="0.7" max="1.3" value="0.95" step="0.05" /></label>
+              <label><span><strong>Conversation mode</strong><small>How the microphone listens</small></span><select id="voiceInputMode"><option value="push">Push to talk</option><option value="continuous">Continuous conversation</option></select></label>
+              <label><span><strong>Interrupt sensitivity</strong><small id="interruptValue">Balanced</small></span><input id="interruptSensitivity" type="range" min="1" max="3" value="2" step="1" /></label>
+              <button class="setting-toggle is-on" id="autoSpeakToggle" type="button" role="switch" aria-checked="true"><span><strong>Speak AIKA responses</strong><small>Use voice after a voice message</small></span><i></i></button>
+              <button class="setting-toggle is-on" id="captionsToggle" type="button" role="switch" aria-checked="true"><span><strong>Always show captions</strong><small>Keep every spoken response readable</small></span><i></i></button>
+            </div></details>
+          </div>
+        </section>
+      </section>
+
+      <div class="desk-controls">
+        <div class="composer-tray" id="composerTray" hidden>
+          <button id="attachFileAction" type="button"><i>＋</i><span><strong>Attach something</strong><small>File, image, or code</small></span></button>
+          <button type="button" data-demo-event="approval"><i>◇</i><span><strong>Approval request</strong><small>Protected action</small></span></button>
+          <button type="button" data-demo-event="offline"><i>⌁</i><span><strong>Offline state</strong><small>Local recovery</small></span></button>
+          <button type="button" data-demo-event="failure"><i>!</i><span><strong>Failed task</strong><small>Honest recovery</small></span></button>
+          <button id="comfortTextToggle" type="button"><i>A</i><span><strong>Comfort text</strong><small>Increase readability</small></span></button>
+        </div>
+        <input id="attachmentInput" type="file" multiple hidden />
+        <form class="thought-ribbon" id="thoughtForm">
+          <button class="composer-add" id="composerAdd" type="button" aria-label="Add attachment or preview a conversation state" aria-expanded="false" aria-controls="composerTray">＋</button>
+          <button class="thought-presence voice-trigger" id="voiceToggle" type="button" aria-label="Preview voice conversation with AIKA" title="Talk with AIKA"><i aria-hidden="true"></i><span aria-hidden="true">⌁</span></button>
+          <label for="thoughtInput">
+            <textarea id="thoughtInput" rows="1" maxlength="800" placeholder="Tell me what’s on your mind…"></textarea>
+          </label>
+          <button type="submit" aria-label="Share thought with AIKA">↗</button>
+        </form>
+        <section class="voice-session" id="voiceSession" aria-label="Voice conversation preview" hidden>
+          <header>
+            <span class="voice-orb" aria-hidden="true"><i></i></span>
+            <p><small id="voicePhase">Listening</small><strong id="voicePrompt">Talk naturally. I’ll keep the words visible.</strong></p>
+            <time id="voiceTimer">00:00</time>
+          </header>
+          <p class="voice-transcript" id="voiceTranscript">I’m listening…</p>
+          <div class="voice-meter" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+          <footer>
+            <button id="voiceCancel" type="button">Cancel</button>
+            <button id="voicePause" type="button">Pause</button>
+            <span>Interface demo · microphone and audio are not accessed</span>
+            <button class="voice-advance" id="voiceAdvance" type="button">Done</button>
+          </footer>
+        </section>
+        <p class="thought-status" id="thoughtStatus" aria-live="polite"></p>
+      </div>
+      </div>
+
+      <aside class="awareness-rail" id="awarenessRail" aria-label="Current awareness">
+        <header><span>Around you</span><button class="rail-close" id="railClose" type="button" aria-label="Collapse awareness sidebar">×</button></header>
+
+        <section class="awareness-item awareness-item--next">
+          <div class="awareness-label"><span>Up next</span><time>Tomorrow · 9:00 AM</time></div>
+          <h2>Review the Living Desk direction</h2>
+          <p>One gentle reminder, waiting until it is useful.</p>
+          <span class="awareness-thread" aria-hidden="true"></span>
+        </section>
+
+        <section class="awareness-item awareness-item--working">
+          <div class="awareness-label"><span>Working quietly</span><span class="mini-progress">04 / 06</span></div>
+          <h2>Response-quality evaluation</h2>
+          <p>Paused safely until local services are available.</p>
+          <div class="progress-line"><i></i></div>
+        </section>
+
+        <p class="rail-honesty"><i></i>Sample information only</p>
+      </aside>
+    </main>
+
+    <script src="script.js"></script>
+  </body>
+</html>
